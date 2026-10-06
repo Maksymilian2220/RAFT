@@ -7,13 +7,13 @@ channels:
 dependencies:
   - matplotlib
   - moorpy>=1.2.1
-  - numpy
+  - numpy<2
   - openmdao > 3.30
   - pyhams
   - pip
-  - python
+  - python=3.11
   - pyyaml
   - ruamel.yaml
   - scipy
   - setuptools
-  - wisdem>=3.16
+  - wisdem=3.16.4

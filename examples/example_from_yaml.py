@@ -7,7 +7,7 @@ import raft
 
 def run_example(plot_flag = False):
     # open the design YAML file and parse it into a dictionary for passing to raft
-    with open('VolturnUS-S_example.yaml') as file:
+    with open('../designs/VolturnUS-S.yaml') as file:
         design = yaml.load(file, Loader=yaml.FullLoader)
 
     # Create the RAFT model (will set up all model objects based on the design dict)
@@ -42,3 +42,6 @@ if __name__ == "__main__":
         
     run_example(plot_flag = plot_flag)
         
+#conda activate raft-env
+#cd "/Users/maksiu/Desktop/DTU/Special course FOWT/RAFT/examples"
+#python example_from_yaml.py 
