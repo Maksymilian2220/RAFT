@@ -7,6 +7,7 @@ import csv
 import json
 import re
 import tempfile
+import unittest
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
@@ -50,6 +51,10 @@ def parse_args() -> argparse.Namespace:
         "--workability-hs-max", type=float, default=WORKABILITY_HS_MAX
     )
     parser.add_argument("--wind-speed-max", type=float, default=WIND_SPEED_MAX)
+    parser.add_argument(
+        "--self-test", action="store_true",
+        help="Run built-in regression tests without reading ERA5 archives.",
+    )
     return parser.parse_args()
 
 
@@ -281,6 +286,121 @@ def write_matrix(
                 ])
 
 
+def wave_bin_statistics(
+    heights: np.ndarray,
+    periods: np.ndarray,
+    wind_speed_10m: np.ndarray,
+    wind_speed_100m: np.ndarray,
+    height_edges: np.ndarray,
+    period_edges: np.ndarray,
+) -> dict[str, np.ndarray]:
+    valid = (
+        np.isfinite(heights) & np.isfinite(periods)
+        & (heights >= 0) & (periods >= 0)
+    )
+    counts = np.histogram2d(
+        heights[valid], periods[valid], bins=(height_edges, period_edges)
+    )[0].astype(np.int64)
+    statistics = {"count": counts}
+    for height, speeds in (("10m", wind_speed_10m), ("100m", wind_speed_100m)):
+        selected = valid & np.isfinite(speeds)
+        wind_counts = np.histogram2d(
+            heights[selected], periods[selected],
+            bins=(height_edges, period_edges),
+        )[0].astype(np.int64)
+        wind_sums = np.histogram2d(
+            heights[selected], periods[selected],
+            bins=(height_edges, period_edges), weights=speeds[selected],
+        )[0]
+        statistics[f"wind_sample_count_{height}"] = wind_counts
+        statistics[f"mean_wind_speed_{height}_ms"] = np.divide(
+            wind_sums, wind_counts, out=np.full(counts.shape, np.nan),
+            where=wind_counts > 0,
+        )
+    return statistics
+
+
+def write_wave_bin_table(
+    path: Path,
+    metrics: dict[str, np.ndarray],
+    scenario_masks: dict[str, np.ndarray],
+    height_edges: np.ndarray,
+    period_edges: np.ndarray,
+    times: np.ndarray | None = None,
+    pool_calendar_months: bool = False,
+) -> None:
+    if pool_calendar_months and times is None:
+        raise ValueError("Calendar-month pooling requires timestamps")
+    month_values = None if times is None else times.astype("datetime64[M]")
+    if pool_calendar_months:
+        month_values = month_values.astype(int) % 12 + 1
+    groups = [None] if month_values is None else np.unique(month_values)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([
+            *([] if times is None else (
+                ["month"] if pool_calendar_months else ["year", "month"]
+            )),
+            "scenario", "hs_bin_lower_m", "hs_bin_upper_m", "hs_center_m",
+            "peak_period_bin_lower_s", "peak_period_bin_upper_s",
+            "tp_center_s",
+            "count", "scenario_valid_hours", "all_valid_hours",
+            "conditional_probability", "probability_of_all_valid_hours",
+            "wind_sample_count_10m", "mean_wind_speed_10m_ms",
+            "wind_sample_count_100m", "mean_wind_speed_100m_ms",
+        ])
+        for group in groups:
+            group_mask = (
+                np.ones(metrics[HEIGHT_VARIABLE].shape, dtype=bool)
+                if group is None else month_values == group
+            )
+            all_count = int(
+                (group_mask & scenario_masks["all_observations"]).sum()
+            )
+            if all_count == 0:
+                continue
+            prefix = []
+            if pool_calendar_months:
+                prefix = [int(group)]
+            elif group is not None:
+                year, month = str(group).split("-")
+                prefix = [int(year), int(month)]
+            for scenario_name, scenario_mask in scenario_masks.items():
+                selected = group_mask & scenario_mask
+                statistics = wave_bin_statistics(
+                    metrics[HEIGHT_VARIABLE][selected],
+                    metrics[PERIOD_VARIABLE][selected],
+                    metrics["wind_speed_10m"][selected],
+                    metrics["wind_speed_100m"][selected],
+                    height_edges, period_edges,
+                )
+                counts = statistics["count"]
+                scenario_count = int(counts.sum())
+                for row, column in np.argwhere(counts > 0):
+                    count = int(counts[row, column])
+                    wind_values = []
+                    for height in ("10m", "100m"):
+                        mean = statistics[f"mean_wind_speed_{height}_ms"][
+                            row, column
+                        ]
+                        wind_values.extend([
+                            int(statistics[f"wind_sample_count_{height}"][
+                                row, column
+                            ]),
+                            "" if np.isnan(mean) else float(mean),
+                        ])
+                    writer.writerow([
+                        *prefix, scenario_name,
+                        height_edges[row], height_edges[row + 1],
+                        (height_edges[row] + height_edges[row + 1]) / 2,
+                        period_edges[column], period_edges[column + 1],
+                        (period_edges[column] + period_edges[column + 1]) / 2,
+                        count, scenario_count, all_count,
+                        count / scenario_count, count / all_count,
+                        *wind_values,
+                    ])
+
+
 def write_monthly_summary(
     path: Path,
     times: np.ndarray,
@@ -289,6 +409,7 @@ def write_monthly_summary(
     workable: np.ndarray,
     start_year: int,
     end_year: int,
+    pool_calendar_months: bool = False,
 ) -> None:
     monthly_metrics = (
         ("shww", "mean_shww_m", False),
@@ -322,24 +443,32 @@ def write_monthly_summary(
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow([
-            "year", "month", "valid_paired_hours", "workable_hours",
+            *(["month"] if pool_calendar_months else ["year", "month"]),
+            "valid_paired_hours", "workable_hours",
             "workable_occurrence_probability", "mean_shww_m",
             *[column for _, column, _ in monthly_metrics[1:]],
+            "workable_occurrence_percent",
         ])
-        for year in range(start_year, end_year + 1):
+        months = times.astype("datetime64[M]")
+        years = [None] if pool_calendar_months else range(
+            start_year, end_year + 1
+        )
+        for year in years:
             for month in range(1, 13):
                 calendar_month = (
-                    times.astype("datetime64[M]")
-                    == np.datetime64(f"{year}-{month:02d}")
+                    months.astype(int) % 12 + 1 == month
+                    if pool_calendar_months
+                    else months == np.datetime64(f"{year}-{month:02d}")
                 )
+                prefix = [month] if pool_calendar_months else [year, month]
                 month_mask = calendar_month & valid
                 count = int(month_mask.sum())
                 if count == 0:
                     writer.writerow(
-                        [year, month] + [""] * (3 + len(monthly_metrics))
+                        prefix + [""] * (4 + len(monthly_metrics))
                     )
                     continue
-                workable_month = calendar_month & workable
+                workable_month = month_mask & workable
                 values = []
                 for name, _, is_direction in monthly_metrics:
                     data = metrics[name]
@@ -354,9 +483,10 @@ def write_monthly_summary(
                     else:
                         values.append(float(selected.mean()))
                 writer.writerow([
-                    year, month, count, int(workable_month.sum()),
+                    *prefix, count, int(workable_month.sum()),
                     float(workable_month.sum() / count),
                     *values,
+                    float(100 * workable_month.sum() / count),
                 ])
 
 
@@ -781,9 +911,28 @@ def run_archive_analysis(args: argparse.Namespace) -> None:
                     int(retained[index]), retained_probability[index],
                 ])
 
+    scenario_masks = {name: mask for name, _, mask in scenario_specs}
+    write_wave_bin_table(
+        args.output_dir / "wave_bin_statistics.csv", metrics,
+        scenario_masks, hs_edges, period_edges,
+    )
+    write_wave_bin_table(
+        args.output_dir / "monthly_wave_bin_statistics.csv", metrics,
+        scenario_masks, hs_edges, period_edges, times=times,
+    )
     write_monthly_summary(
         args.output_dir / "monthly_summary.csv", times, metrics,
         valid, workable_all_times, args.start_year, args.end_year,
+    )
+    write_wave_bin_table(
+        args.output_dir / "calendar_month_wave_bin_statistics.csv", metrics,
+        scenario_masks, hs_edges, period_edges, times=times,
+        pool_calendar_months=True,
+    )
+    write_monthly_summary(
+        args.output_dir / "calendar_month_summary.csv", times, metrics,
+        valid, workable_all_times, args.start_year, args.end_year,
+        pool_calendar_months=True,
     )
     write_metric_summary(
         args.output_dir / "additional_metrics_summary.csv",
@@ -918,6 +1067,37 @@ def run_archive_analysis(args: argparse.Namespace) -> None:
         "bin_widths": {
             "height_m": args.hs_bin,
             "peak_period_s": args.period_bin,
+        },
+        "wave_bin_statistics": {
+            "files": [
+                "wave_bin_statistics.csv", "monthly_wave_bin_statistics.csv",
+                "calendar_month_wave_bin_statistics.csv",
+            ],
+            "rows": "occupied bins only, per scenario; shared global edges",
+            "monthly_grouping": (
+                "individual year-month, not pooled across years"
+            ),
+            "calendar_month_grouping": (
+                "same calendar month pooled across all selected years; "
+                "counts and finite wind samples pooled before averaging"
+            ),
+            "calendar_month_summary": "calendar_month_summary.csv",
+            "annual_weighting": (
+                "all valid hourly observations, not equal monthly weights; "
+                "bin wind means weighted by finite wind sample counts"
+            ),
+            "conditional_probability": (
+                "bin count / scenario valid hours in group"
+            ),
+            "probability_of_all_valid_hours": (
+                "bin count / all valid wave hours in group"
+            ),
+            "wind_means": (
+                "arithmetic mean of finite hourly speeds "
+                "in the same scenario and bin"
+            ),
+            "missing_wind": "blank mean with zero sample count; not zero wind",
+            "wind_reference_heights_m": [10, 100],
         },
         "height_range_m": [float(hs.min()), float(hs.max())],
         "peak_period_range_s": [
@@ -1089,8 +1269,248 @@ def run_archive_analysis(args: argparse.Namespace) -> None:
               f"({result['percentage_of_valid']:.2f}% of valid pairs)")
 
 
+class WaveBinTests(unittest.TestCase):
+    def test_wind_means_counts_and_histogram_boundaries(self):
+        result = wave_bin_statistics(
+            np.array([0.2, 0.4, 1., 2., np.nan, -1.]),
+            np.array([0.5, 0.5, 1., 2., 0.5, 0.5]),
+            np.array([2., 6., np.nan, 12., 100., 100.]),
+            np.array([4., np.nan, 10., 14., 100., 100.]),
+            np.array([0., 1., 2.]), np.array([0., 1., 2.]),
+        )
+        np.testing.assert_array_equal(result["count"], [[2, 0], [0, 2]])
+        np.testing.assert_array_equal(
+            result["wind_sample_count_10m"], [[2, 0], [0, 1]],
+        )
+        np.testing.assert_array_equal(
+            result["wind_sample_count_100m"], [[1, 0], [0, 2]],
+        )
+        for height in ("10m", "100m"):
+            np.testing.assert_allclose(
+                result[f"mean_wind_speed_{height}_ms"],
+                [[4., np.nan], [np.nan, 12.]], equal_nan=True,
+            )
+
+    def test_empty_input_has_zero_counts_and_missing_means(self):
+        empty = np.array([])
+        result = wave_bin_statistics(
+            empty, empty, empty, empty,
+            np.array([0., 1.]), np.array([0., 1.]),
+        )
+        self.assertEqual(result["count"].item(), 0)
+        self.assertTrue(np.isnan(result["mean_wind_speed_10m_ms"]).all())
+        self.assertTrue(np.isnan(result["mean_wind_speed_100m_ms"]).all())
+
+
+class DistributionOutputTests(unittest.TestCase):
+    def setUp(self):
+        self.times = np.array([
+            "2006-01-01", "2006-01-02", "2006-02-01", "2007-01-01",
+        ], dtype="datetime64[h]")
+        self.metrics = {
+            name: np.full(4, np.nan)
+            for name in (
+                *WAVE_METRICS, *OPTIONAL_WAVE_METRICS,
+                "wind_speed_10m", "wind_speed_100m",
+                "wind_direction_10m", "wind_direction_100m", "i10fg",
+            )
+        }
+        self.metrics.update({
+            "shww": np.array([0.2, 0.4, 1.5, 0.5]),
+            "pp1d": np.array([0.5, 0.5, 1.5, 0.5]),
+            "wind_speed_10m": np.array([2., 20., 4., 8.]),
+            "wind_speed_100m": np.array([4., np.nan, np.nan, 12.]),
+        })
+        self.valid = np.ones(4, dtype=bool)
+        self.workable = np.array([True, False, True, True])
+        self.scenarios = {
+            "all_observations": self.valid,
+            "wind_and_height_filter": self.workable,
+        }
+        self.edges = np.array([0., 1., 2.])
+
+    def test_monthly_bins_preserve_year_and_scenario(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "monthly.csv"
+            write_wave_bin_table(
+                path, self.metrics, self.scenarios, self.edges, self.edges,
+                times=self.times,
+            )
+            with path.open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+        self.assertEqual(len(rows), 6)
+        january, retained = rows[:2]
+        self.assertEqual((january["year"], january["month"]), ("2006", "1"))
+        self.assertEqual(january["mean_wind_speed_10m_ms"], "11.0")
+        self.assertEqual(january["wind_sample_count_100m"], "1")
+        self.assertEqual(retained["mean_wind_speed_10m_ms"], "2.0")
+        self.assertEqual(retained["probability_of_all_valid_hours"], "0.5")
+        self.assertEqual(rows[2]["mean_wind_speed_100m_ms"], "")
+        self.assertEqual(rows[4]["year"], "2007")
+        self.assertEqual(rows[4]["mean_wind_speed_10m_ms"], "8.0")
+        for row in rows:
+            self.assertEqual(float(row["conditional_probability"]), 1.)
+
+    def test_calendar_month_pooling_uses_sample_weights(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "pooled.csv"
+            write_wave_bin_table(
+                path, self.metrics, self.scenarios, self.edges, self.edges,
+                times=self.times, pool_calendar_months=True,
+            )
+            with path.open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(len(rows), 4)
+            self.assertNotIn("year", rows[0])
+            self.assertEqual(rows[0]["month"], "1")
+            self.assertEqual(rows[0]["count"], "3")
+            self.assertEqual(rows[0]["mean_wind_speed_10m_ms"], "10.0")
+            self.assertEqual(rows[0]["wind_sample_count_100m"], "2")
+            self.assertEqual(rows[0]["mean_wind_speed_100m_ms"], "8.0")
+            self.assertEqual(rows[1]["mean_wind_speed_10m_ms"], "5.0")
+            self.assertAlmostEqual(
+                float(rows[1]["probability_of_all_valid_hours"]), 2 / 3,
+            )
+            write_monthly_summary(
+                path, self.times, self.metrics, self.valid, self.workable,
+                2006, 2007, pool_calendar_months=True,
+            )
+            with path.open(newline="", encoding="utf-8") as handle:
+                summary = list(csv.DictReader(handle))
+        self.assertEqual(len(summary), 12)
+        self.assertNotIn("year", summary[0])
+        self.assertEqual(summary[0]["valid_paired_hours"], "3")
+        self.assertAlmostEqual(
+            float(summary[0]["workable_occurrence_percent"]), 200 / 3,
+        )
+        self.assertEqual(summary[2]["workable_occurrence_percent"], "")
+        self.assertTrue(all(None not in row for row in summary))
+        self.assertEqual(sum(
+            int(row["valid_paired_hours"])
+            for row in summary if row["valid_paired_hours"]
+        ), int(self.valid.sum()))
+
+    def test_calendar_month_pooling_includes_leap_day(self):
+        self.times = np.array([
+            "2007-02-28", "2008-02-28", "2008-02-29", "2008-03-01",
+        ], dtype="datetime64[h]")
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "pooled.csv"
+            write_wave_bin_table(
+                path, self.metrics, self.scenarios, self.edges, self.edges,
+                times=self.times, pool_calendar_months=True,
+            )
+            with path.open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+        february = [
+            row for row in rows if row["month"] == "2"
+            and row["scenario"] == "all_observations"
+        ]
+        self.assertEqual(sum(int(row["count"]) for row in february), 3)
+        self.assertAlmostEqual(sum(
+            float(row["conditional_probability"]) for row in february
+        ), 1.)
+
+    def test_full_period_probabilities_and_empty_scenario(self):
+        self.scenarios["empty"] = np.zeros(4, dtype=bool)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "bins.csv"
+            write_wave_bin_table(
+                path, self.metrics, self.scenarios, self.edges, self.edges,
+            )
+            with path.open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+        self.assertEqual(len(rows), 4)
+        self.assertNotIn("year", rows[0])
+        self.assertEqual(rows[0]["count"], "3")
+        self.assertEqual(rows[0]["mean_wind_speed_10m_ms"], "10.0")
+        self.assertEqual(rows[0]["mean_wind_speed_100m_ms"], "8.0")
+        for scenario in self.scenarios:
+            selected = [row for row in rows if row["scenario"] == scenario]
+            if selected:
+                self.assertAlmostEqual(sum(
+                    float(row["conditional_probability"]) for row in selected
+                ), 1.)
+        self.assertAlmostEqual(sum(
+            float(row["probability_of_all_valid_hours"])
+            for row in rows if row["scenario"] == "wind_and_height_filter"
+        ), 0.75)
+
+    def test_monthly_workability_percentage_and_empty_month(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "summary.csv"
+            write_monthly_summary(
+                path, self.times, self.metrics, self.valid, self.workable,
+                2006, 2007,
+            )
+            with path.open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+        self.assertEqual(len(rows), 24)
+        self.assertEqual(rows[0]["workable_occurrence_probability"], "0.5")
+        self.assertEqual(rows[0]["workable_occurrence_percent"], "50.0")
+        self.assertEqual(rows[1]["workable_occurrence_percent"], "100.0")
+        self.assertEqual(rows[2]["workable_occurrence_percent"], "")
+        self.assertEqual(rows[12]["workable_occurrence_percent"], "100.0")
+        self.assertTrue(all(None not in row for row in rows))
+
+
+class ServiceabilityTests(unittest.TestCase):
+    def test_thresholds_overlap_and_missing_wind(self):
+        valid, retained, summary = serviceability_filters(
+            np.array([1., 1., 2.5, 3., 1., np.nan]),
+            np.ones(6), np.array([0., 12., 0., 20., np.nan, 0.]),
+            np.array([0., 16., 0., 0., 0., 0.]), 20., 2.5,
+        )
+        self.assertEqual(int(valid.sum()), 5)
+        self.assertEqual(retained.tolist(),
+                         [True, False, False, False, False, False])
+        self.assertEqual(summary["wind_constraint"]["hours"], 2)
+        self.assertEqual(summary["height_constraint"]["hours"], 2)
+        self.assertEqual(summary["both_constraints"]["hours"], 1)
+        self.assertEqual(summary["either_constraint"]["hours"], 3)
+        self.assertEqual(summary["missing_wind"]["hours"], 1)
+        self.assertEqual(summary["retained"]["percentage_of_valid"], 20.)
+
+    def test_signed_wind_is_converted_to_magnitude(self):
+        _, retained, _ = serviceability_filters(
+            np.ones(2), np.ones(2), np.array([-20., -19.]),
+            np.zeros(2), 20., 2.5,
+        )
+        self.assertEqual(retained.tolist(), [False, True])
+
+    def test_archive_ownership_and_missing_months(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = root / "pentland_era5_wind_waves_2006_01-12.nc"
+            bundle.touch()
+            monthly = root / "pentland_era5_wind_waves_2006_01.zip"
+            monthly.touch()
+            owners = discover_archives(root, 2006, 2006)
+            self.assertEqual(len(owners), 12)
+            self.assertEqual(owners["2006-01"], monthly)
+            self.assertEqual(owners["2006-02"], bundle)
+            with self.assertRaisesRegex(ValueError, "Missing ERA5 months"):
+                discover_archives(root, 2006, 2007)
+
+
+def run_self_tests() -> None:
+    suite = unittest.TestSuite(
+        unittest.defaultTestLoader.loadTestsFromTestCase(test_case)
+        for test_case in (
+            WaveBinTests, DistributionOutputTests, ServiceabilityTests
+        )
+    )
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    if not result.wasSuccessful():
+        raise SystemExit(1)
+
+
 def main() -> None:
-    run_archive_analysis(parse_args())
+    args = parse_args()
+    if args.self_test:
+        run_self_tests()
+    else:
+        run_archive_analysis(args)
 
 
 if __name__ == "__main__":
