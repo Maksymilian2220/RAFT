@@ -1,0 +1,4 @@
+scenario,filters,valid_hours,share_of_all_valid_hours,joint_probability_sum
+all_observations,All valid paired observations,131496,1.0,1.0
+wind_filter,10 m wind speed < 20 m/s,131012,0.9963192796739064,1.0
+wind_and_height_filter,"10 m wind < 20 m/s, Hs < 2.5 m",111889,0.8508928028228996,1.0

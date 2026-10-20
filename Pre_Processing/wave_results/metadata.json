@@ -1,0 +1,33 @@
+{
+  "input": "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\Pre_Processing\\b03308000ffcbbec7b23a7438de7e14\\data.grib",
+  "year": 2025,
+  "region": {
+    "south": 41.5,
+    "north": 47.75,
+    "west": -17.25,
+    "east": -10.75
+  },
+  "weighting": "equal valid grid-cell/hour observations",
+  "height_variable": "swh",
+  "period_variable": "mwp",
+  "height_units": "m",
+  "period_units": "s",
+  "valid_observations": 367920,
+  "height_range_m": [
+    0.6003169417381287,
+    10.590349197387695
+  ],
+  "period_range_s": [
+    4.784717559814453,
+    15.939353942871094
+  ],
+  "dominant_hs_bin_m": [
+    1.25,
+    1.5
+  ],
+  "dominant_period_bin_s": [
+    7.75,
+    8.0
+  ],
+  "dominant_joint_probability": 0.009765709936942814
+}
