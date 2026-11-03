@@ -11,9 +11,10 @@ import unittest
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
-import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
+
+from era5_cache import load_cache
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -42,6 +43,10 @@ WIND_METRICS = ("u10", "v10", "u100", "v100", "i10fg")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-dir", type=Path, default=DEFAULT_INPUT)
+    parser.add_argument(
+        "--cache-file", type=Path,
+        help="Read prepared Parquet input instead of monthly archives.",
+    )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--start-year", type=int, default=START_YEAR)
     parser.add_argument("--end-year", type=int, default=END_YEAR)
@@ -58,7 +63,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def read_archive(path: Path, temporary_dir: Path, index: int):
+def read_archive(
+    path: Path,
+    temporary_dir: Path,
+    index: int,
+    include_swh: bool = False,
+):
     try:
         with ZipFile(path) as archive:
             members = archive.namelist()
@@ -114,7 +124,10 @@ def read_archive(path: Path, temporary_dir: Path, index: int):
         longitude = float(wave_dataset["longitude"].values)
         metrics = {}
         units = {}
-        for name in (*WAVE_METRICS, *OPTIONAL_WAVE_METRICS):
+        wave_metrics = (*WAVE_METRICS, *OPTIONAL_WAVE_METRICS)
+        if include_swh and "swh" not in wave_metrics:
+            wave_metrics += ("swh",)
+        for name in wave_metrics:
             if name not in wave_dataset.data_vars:
                 metrics[name] = np.full(times.size, np.nan)
                 units[name] = "unavailable in source archive"
@@ -571,63 +584,79 @@ def run_archive_analysis(args: argparse.Namespace) -> None:
         raise ValueError("Bin widths must be positive")
     if args.wind_speed_max <= 0 or args.workability_hs_max <= 0:
         raise ValueError("Wind and height thresholds must be positive")
-    if not args.input_dir.is_dir():
-        raise FileNotFoundError(f"Input directory not found: {args.input_dir}")
-
-    owners = discover_archives(
-        args.input_dir, args.start_year, args.end_year
-    )
-    files = sorted(set(owners.values()))
-
-    timestamps = []
-    metric_parts = {
-        name: []
-        for name in (*WAVE_METRICS, *OPTIONAL_WAVE_METRICS, *WIND_METRICS)
-    }
-    locations = set()
-    metric_units = {}
-    with tempfile.TemporaryDirectory(prefix="era5_wave_analysis_") as temp:
-        temporary_dir = Path(temp)
-        for index, path in enumerate(files):
-            print(f"Reading {path.name} ...", flush=True)
-            result = read_archive(path, temporary_dir, index)
-            times, file_metrics, latitude, longitude, file_units = result
-            year_mask = np.isin(
-                times.astype("datetime64[M]"),
-                np.array([
-                    month for month, owner in owners.items() if owner == path
-                ], dtype="datetime64[M]"),
-            )
-            timestamps.append(times[year_mask])
-            for name, values in file_metrics.items():
-                metric_parts[name].append(values[year_mask])
-            metric_units.update(file_units)
-            locations.add((latitude, longitude))
-
-    if len(locations) != 1:
-        raise ValueError(f"Inconsistent wave grid points: {sorted(locations)}")
-
-    times = np.concatenate(timestamps)
-    order = np.argsort(times)
-    times = times[order]
-    metrics = {
-        name: np.concatenate(parts)[order]
-        for name, parts in metric_parts.items()
-    }
-    if np.unique(times).size != times.size:
-        raise ValueError("Input archives contain overlapping timestamps")
-
     expected_times = np.arange(
         np.datetime64(f"{args.start_year}-01-01T00", "ns"),
         np.datetime64(f"{args.end_year + 1}-01-01T00", "ns"),
         np.timedelta64(1, "h"),
     )
-    if not np.array_equal(times, expected_times):
-        raise ValueError(
-            "Input timestamps are not a complete hourly record for the "
-            f"requested period: found {times.size}, expected "
-            f"{expected_times.size}"
+    if args.cache_file is not None:
+        times, metrics, latitude, longitude, metric_units = load_cache(
+            args.cache_file, args.start_year, args.end_year
         )
+        files = [args.cache_file]
+        owners = {}
+        locations = {(latitude, longitude)}
+    else:
+        if not args.input_dir.is_dir():
+            raise FileNotFoundError(
+                f"Input directory not found: {args.input_dir}"
+            )
+        owners = discover_archives(
+            args.input_dir, args.start_year, args.end_year
+        )
+        files = sorted(set(owners.values()))
+        timestamps = []
+        metric_parts = {
+            name: []
+            for name in (
+                *WAVE_METRICS, *OPTIONAL_WAVE_METRICS, *WIND_METRICS
+            )
+        }
+        locations = set()
+        metric_units = {}
+        with tempfile.TemporaryDirectory(
+            prefix="era5_wave_analysis_"
+        ) as temp:
+            temporary_dir = Path(temp)
+            for index, path in enumerate(files):
+                print(f"Reading {path.name} ...", flush=True)
+                result = read_archive(path, temporary_dir, index)
+                (
+                    file_times, file_metrics, latitude, longitude, file_units
+                ) = result
+                year_mask = np.isin(
+                    file_times.astype("datetime64[M]"),
+                    np.array([
+                        month for month, owner in owners.items()
+                        if owner == path
+                    ], dtype="datetime64[M]"),
+                )
+                timestamps.append(file_times[year_mask])
+                for name, values in file_metrics.items():
+                    metric_parts[name].append(values[year_mask])
+                metric_units.update(file_units)
+                locations.add((latitude, longitude))
+
+        if len(locations) != 1:
+            raise ValueError(
+                f"Inconsistent wave grid points: {sorted(locations)}"
+            )
+        times = np.concatenate(timestamps)
+        order = np.argsort(times)
+        times = times[order]
+        metrics = {
+            name: np.concatenate(parts)[order]
+            for name, parts in metric_parts.items()
+        }
+        if np.unique(times).size != times.size:
+            raise ValueError("Input archives contain overlapping timestamps")
+
+        if not np.array_equal(times, expected_times):
+            raise ValueError(
+                "Input timestamps are not a complete hourly record for the "
+                f"requested period: found {times.size}, expected "
+                f"{expected_times.size}"
+            )
 
     heights = metrics[HEIGHT_VARIABLE]
     peak_period = metrics[PERIOD_VARIABLE]
@@ -815,31 +844,6 @@ def run_archive_analysis(args: argparse.Namespace) -> None:
                         probabilities[index],
                     ])
 
-    scenario_figure, scenario_axes = plt.subplots(
-        1, len(scenarios), figsize=(18, 6), constrained_layout=True
-    )
-    for axis, scenario in zip(scenario_axes, scenarios):
-        image = axis.pcolormesh(
-            hs_edges, period_edges, scenario["probability"].T,
-            shading="auto",
-        )
-        axis.set(
-            xlabel="Wind-wave significant height Hs (m)",
-            ylabel="Peak wave period (s)",
-            title=(
-                f"{scenario['description']}\n"
-                f"n={scenario['count']:,} "
-                f"({scenario['share_of_all_valid']:.1%} of valid hours)"
-            ),
-        )
-        scenario_figure.colorbar(
-            image, ax=axis, label="Conditional probability"
-        )
-    scenario_figure.savefig(
-        args.output_dir / "three_scenario_joint_probabilities.png", dpi=200
-    )
-    plt.close(scenario_figure)
-
     write_marginal(
         args.output_dir / "hs_marginal.csv",
         hs_edges, hs_counts, "hs", "m",
@@ -991,7 +995,10 @@ def run_archive_analysis(args: argparse.Namespace) -> None:
     height_units = metric_units[HEIGHT_VARIABLE] or "unknown"
     period_units = metric_units[PERIOD_VARIABLE] or "unknown"
     metadata = {
-        "input_directory": str(args.input_dir.resolve()),
+        "input_directory": str(
+            (args.cache_file.parent if args.cache_file else args.input_dir)
+            .resolve()
+        ),
         "site": {"latitude": SITE_LATITUDE, "longitude": SITE_LONGITUDE},
         "download_area_north_west_south_east": DOWNLOAD_AREA,
         "grid_selection": "nearest available wave point to site",
@@ -1125,125 +1132,6 @@ def run_archive_analysis(args: argparse.Namespace) -> None:
     (args.output_dir / "metadata.json").write_text(
         json.dumps(metadata, indent=2), encoding="utf-8"
     )
-
-    figure, axes = plt.subplots(
-        2, 2, figsize=(13, 10), constrained_layout=True
-    )
-    latitude, longitude = next(iter(locations))
-    figure.suptitle(
-        f"ERA5 wind-wave states, {args.start_year}-{args.end_year} "
-        f"| {latitude:g} N, {abs(longitude):g} W",
-        fontsize=14,
-    )
-    hs_centers = (hs_edges[:-1] + hs_edges[1:]) / 2
-    period_centers = (period_edges[:-1] + period_edges[1:]) / 2
-    axes[0, 0].bar(
-        hs_centers - args.hs_bin * 0.2,
-        hs_full_marginal / hs_full_marginal.sum(),
-        width=args.hs_bin * 0.4, label="All observations",
-    )
-    axes[0, 0].bar(
-        hs_centers + args.hs_bin * 0.2,
-        hs_workable_marginal / hs_workable_marginal.sum(),
-        width=args.hs_bin * 0.4,
-        label=retained_label,
-    )
-    axes[0, 0].axvline(
-        args.workability_hs_max, color="black", linestyle="--", linewidth=1
-    )
-    axes[0, 0].set(
-        xlabel="Wind-wave significant height Hs (m)",
-        ylabel="Probability",
-        title="Hs marginal",
-    )
-    axes[0, 0].legend()
-    axes[0, 1].bar(
-        period_centers - args.period_bin * 0.2,
-        period_full_marginal / period_full_marginal.sum(),
-        width=args.period_bin * 0.4, label="All observations",
-    )
-    axes[0, 1].bar(
-        period_centers + args.period_bin * 0.2,
-        period_workable_marginal / period_workable_marginal.sum(),
-        width=args.period_bin * 0.4,
-        label=retained_label,
-    )
-    axes[0, 1].set(
-        xlabel="Peak wave period (s)",
-        ylabel="Probability",
-        title="Peak period marginal",
-    )
-    axes[0, 1].legend()
-    for axis, matrix, title in (
-        (axes[1, 0], joint_probability, "Joint probability: all observations"),
-        (axes[1, 1], workable_joint_probability,
-         f"Joint probability: {retained_label}"),
-    ):
-        image = axis.pcolormesh(
-            hs_edges, period_edges, matrix.T, shading="auto"
-        )
-        axis.set(
-            xlabel="Wind-wave significant height Hs (m)",
-            ylabel="Peak wave period (s)",
-            title=title,
-        )
-        figure.colorbar(image, ax=axis, label="Probability")
-    figure.savefig(args.output_dir / "wave_state_distributions.png", dpi=200)
-    plt.close(figure)
-
-    metric_figure, metric_axes = plt.subplots(
-        2, 2, figsize=(12, 9), constrained_layout=True
-    )
-    for axis, values, title, unit in (
-        (metric_axes[0, 0], speed_10m, "10 m wind speed", "m/s"),
-        (metric_axes[0, 1], speed_100m, "100 m wind speed", "m/s"),
-        (metric_axes[1, 0], metrics["i10fg"], "10 m wind gust", "m/s"),
-        (metric_axes[1, 1], metrics["wsp"], "Wave spectral peakedness", ""),
-    ):
-        finite = values[np.isfinite(values)]
-        axis.hist(finite, bins=40, density=True)
-        xlabel = f"{title} ({unit})" if unit else title
-        axis.set(xlabel=xlabel, ylabel="Density", title=title)
-    metric_figure.savefig(
-        args.output_dir / "additional_metric_distributions.png", dpi=200
-    )
-    plt.close(metric_figure)
-
-    direction_series = {
-        "10 m wind": direction_10m,
-        "100 m wind": direction_100m,
-        "mean waves": metrics["mwd"],
-        "wind waves": metrics["mdww"],
-        "total swell": metrics["mdts"],
-    }
-    direction_series = {
-        label: values for label, values in direction_series.items()
-        if np.isfinite(values).any()
-    }
-    direction_figure, direction_axes = plt.subplots(
-        1, len(direction_series),
-        figsize=(5.5 * len(direction_series), 5),
-        subplot_kw={"projection": "polar"},
-        constrained_layout=True,
-    )
-    for axis, (label, values) in zip(
-        np.atleast_1d(direction_axes), direction_series.items()
-    ):
-        finite = values[np.isfinite(values)]
-        shifted = (finite + 11.25) % 360
-        counts, _ = np.histogram(
-            shifted, bins=np.arange(0, 360 + 22.5, 22.5)
-        )
-        probabilities = counts / counts.sum()
-        angles = np.deg2rad(np.arange(16) * 22.5)
-        axis.bar(angles, probabilities, width=np.deg2rad(22.5))
-        axis.set_theta_zero_location("N")
-        axis.set_theta_direction(-1)
-        axis.set_title(f"{label} direction from")
-    direction_figure.savefig(
-        args.output_dir / "wind_direction_rose.png", dpi=200
-    )
-    plt.close(direction_figure)
 
     assert np.isclose(joint_probability.sum(), 1.0)
     assert np.isclose(workable_joint_probability.sum(), 1.0)

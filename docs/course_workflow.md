@@ -257,6 +257,31 @@ For the course, first establish the no-wake baseline. Then compare it with a wak
 
 **Where:** `course_workflow/scripts/01_prepare_metocean.py`, `course_workflow/data/raw/`, `course_workflow/data/processed/`
 
+#### ERA5 Wave-Distribution Input
+
+The ERA5 preprocessing scripts live in `Pre_Processing/`. Install their
+optional dependencies from the repository root:
+
+```powershell
+python -m pip install -e ".[era5]"
+```
+
+After the monthly downloads are present in `Pre_Processing/era5_monthly/`,
+prepare a single-site Parquet cache and use it for repeated analysis:
+
+```powershell
+python Pre_Processing/prepare_era5_cache.py --start-year 2006 --end-year 2020
+python Pre_Processing/wave_state_distribution.py --cache-file Pre_Processing/era5_processed/era5_point_2006_2020.parquet
+```
+
+The preparation step preserves the source archives and writes a JSON sidecar
+with the selected grid point, variable units, source files, and time coverage.
+The resulting table has one row per hourly `valid_time` and can also be opened
+directly with `pandas.read_parquet`. Use `--start-year` and `--end-year` on both
+commands to match a different analysis period. To read raw monthly archives
+without the cache, omit `--cache-file` from the analysis command. The swell
+comparison script accepts the same cache option.
+
 **Do:**
 
 - Import the joint wind-wave scatter data and preserve the original file.

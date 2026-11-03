@@ -6,19 +6,25 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     wait,
 )
+from datetime import date
 import filecmp
 from pathlib import Path
+import re
 from threading import local
 import zipfile
 
 import cdsapi
 
 
-START_YEAR = 2019
-START_MONTH = 7
-END_YEAR = 2025
+START_YEAR = 2006
+START_MONTH = 1
+END_YEAR = 2026
 PACKAGE_MONTHS = 1
 OUTPUT_DIR = Path(__file__).resolve().parent / 'era5_monthly'
+FILE_PATTERN = re.compile(
+    r'pentland_era5_wind_waves_(?P<year>\d{4})_(?P<first>\d{2})'
+    r'(?:-(?P<last>\d{2}))?\.(?P<extension>zip|nc)'
+)
 
 VARIABLES = [
     # Wind parameters
@@ -33,10 +39,21 @@ VARIABLES = [
     'peak_wave_period',
     'mean_wave_period',
     'wave_spectral_peakedness',
-    # Period descriptors for sea-state analysis and later JONSWAP fitting
+    'mean_wave_direction',
+    'mean_direction_of_wind_waves',
+    'mean_direction_of_total_swell',
+    # Period and spectral descriptors used by the analysis
     'mean_zero_crossing_wave_period',
     'mean_period_of_wind_waves',
     'mean_period_of_total_swell',
+    'wave_spectral_directional_width',
+    'wind_wave_spectral_directional_width',
+    'swell_wave_spectral_directional_width',
+    'wave_spectral_skewness',
+    'wave_spectral_kurtosis',
+    'maximum_individual_wave_height',
+    'period_of_maximum_individual_wave',
+    'model_bathymetry',
 ]
 
 TIMES = [f'{hour:02d}:00' for hour in range(24)]
@@ -49,9 +66,25 @@ def parse_args():
         '--workers', type=int, default=2,
         help='number of concurrent CDS downloads (default: 2)',
     )
-    parser.add_argument('--end-year', type=int, default=END_YEAR)
-    parser.add_argument('--end-month', type=int, default=12)
+    parser.add_argument('--end-year', type=int)
+    parser.add_argument('--end-month', type=int)
+    parser.add_argument(
+        '--dry-run', action='store_true',
+        help='list missing monthly packages without downloading them',
+    )
     args = parser.parse_args()
+    today = date.today()
+    latest_year = today.year
+    latest_month = today.month - 2
+    if latest_month < 1:
+        latest_year -= 1
+        latest_month += 12
+    if args.end_year is None:
+        args.end_year = min(END_YEAR, latest_year)
+    if args.end_month is None:
+        args.end_month = (
+            12 if args.end_year < latest_year else latest_month
+        )
     if args.workers < 1:
         parser.error('--workers must be at least 1')
     if not 1 <= args.end_month <= 12:
@@ -59,6 +92,33 @@ def parse_args():
     if args.end_year < START_YEAR:
         parser.error('--end-year cannot be before the configured start year')
     return args
+
+
+def discover_existing_months():
+    """Return months covered by valid archives or nonempty NetCDF files."""
+    existing = set()
+    if not OUTPUT_DIR.exists():
+        return existing
+
+    for path in OUTPUT_DIR.iterdir():
+        match = FILE_PATTERN.fullmatch(path.name)
+        if not path.is_file() or match is None:
+            continue
+        first_month = int(match['first'])
+        last_month = int(match['last'] or first_month)
+        if not 1 <= first_month <= last_month <= 12:
+            continue
+        if match['extension'] == 'zip':
+            if not zipfile.is_zipfile(path):
+                continue
+        elif path.stat().st_size == 0:
+            continue
+
+        year = int(match['year'])
+        existing.update(
+            (year, month) for month in range(first_month, last_month + 1)
+        )
+    return existing
 
 
 def download_months(client, year, months):
@@ -150,7 +210,9 @@ def download_job(job):
 def main():
     args = parse_args()
     OUTPUT_DIR.mkdir(exist_ok=True)
+    existing_months = discover_existing_months()
     jobs = []
+    skipped_months = 0
     for year in range(START_YEAR, args.end_year + 1):
         start_month = START_MONTH if year == START_YEAR else 1
         last_month = args.end_month if year == args.end_year else 12
@@ -161,7 +223,26 @@ def main():
                     min(last_month + 1, first_month + PACKAGE_MONTHS),
                 )
             )
-            jobs.append((year, months))
+            missing = [
+                month for month in months
+                if (year, month) not in existing_months
+            ]
+            if not missing:
+                skipped_months += len(months)
+            elif len(missing) == len(months):
+                jobs.append((year, months))
+            else:
+                jobs.extend((year, [month]) for month in missing)
+
+    print(
+        f'Found {skipped_months} existing months; '
+        f'{len(jobs)} monthly packages are missing.',
+        flush=True,
+    )
+    if args.dry_run:
+        for year, months in jobs:
+            print(f'Would download {year}-{months[0]:02d}', flush=True)
+        return
 
     jobs_iter = iter(jobs)
     with ThreadPoolExecutor(max_workers=args.workers) as executor:

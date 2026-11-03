@@ -1,0 +1,13 @@
+dof,quantity,source,amplitude,rms,unit
+surge,motion,OrcaFlex platform-origin RAO prediction,0.01937790591326389,0.013702248676463793,m
+sway,motion,OrcaFlex platform-origin RAO prediction,2.577441155509025e-07,1.822526119169722e-07,m
+heave,motion,OrcaFlex platform-origin RAO prediction,0.023005993554179743,0.016267694050094497,m
+roll,motion,OrcaFlex platform-origin RAO prediction,2.6346676605461676e-06,1.8629913689450919e-06,deg
+pitch,motion,OrcaFlex platform-origin RAO prediction,0.01684472221576788,0.011911017305973153,deg
+yaw,motion,OrcaFlex platform-origin RAO prediction,2.7543508983669645e-06,1.94762019800254e-06,deg
+surge,acceleration,OrcaFlex platform-origin RAO prediction,0.007844989579277978,0.005547245329845258,m/s^2
+sway,acceleration,OrcaFlex platform-origin RAO prediction,1.043456351613835e-07,7.378350620983172e-08,m/s^2
+heave,acceleration,OrcaFlex platform-origin RAO prediction,0.009313791722455384,0.006585845285507336,m/s^2
+roll,acceleration,OrcaFlex platform-origin RAO prediction,1.0666240425750958e-06,7.54217093481459e-07,deg/s^2
+pitch,acceleration,OrcaFlex platform-origin RAO prediction,0.006819450504095949,0.004822079695412265,deg/s^2
+yaw,acceleration,OrcaFlex platform-origin RAO prediction,1.1150768401952824e-06,7.884783952461523e-07,deg/s^2

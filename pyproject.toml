@@ -68,6 +68,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pre-commit"]
+era5 = [
+  "cdsapi",
+  "netCDF4",
+  "pandas",
+  "pyarrow",
+  "xarray",
+]
 docs = [
     "sphinx",
     "sphinx-rtd-theme"
