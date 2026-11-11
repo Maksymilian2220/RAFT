@@ -19,12 +19,13 @@ from era5_cache import load_cache
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_INPUT = BASE_DIR / "era5_monthly"
 DEFAULT_OUTPUT = BASE_DIR / "wave_swell_wind_comparison_results"
-DEFAULT_CACHE = BASE_DIR / "era5_processed" / "era5_point_2006_2020.parquet"
+DEFAULT_CACHE = BASE_DIR / "era5_processed" / "era5_point_2006_2023.parquet"
 START_YEAR = 2006
-END_YEAR = 2020
+END_YEAR = 2023
 SITE_LATITUDE = 58.6296
 SITE_LONGITUDE = -3.8403666667
-WAVE_VARIABLES = ("swh", "shww", "pp1d")
+WAVE_VARIABLES = ("swh", "shww", "shts", "pp1d")
+REQUIRED_WAVE_VARIABLES = ("swh", "shww", "pp1d")
 OUTPUT_CSV = "wave_state_data.csv"
 
 
@@ -61,7 +62,7 @@ def read_archive(path: Path, temporary_dir: Path, index: int):
 
     try:
         with xr.open_dataset(extracted, engine="netcdf4") as dataset:
-            missing = set(WAVE_VARIABLES) - set(dataset.data_vars)
+            missing = set(REQUIRED_WAVE_VARIABLES) - set(dataset.data_vars)
             if missing:
                 raise KeyError(
                     f"{path.name} missing wave variables {sorted(missing)}"
@@ -74,9 +75,11 @@ def read_archive(path: Path, temporary_dir: Path, index: int):
                 "datetime64[ns]"
             )
             metrics = {
-                name: np.asarray(
-                    selected[name].values, dtype=float
-                ).reshape(-1)
+                name: (
+                    np.asarray(selected[name].values, dtype=float).reshape(-1)
+                    if name in selected.data_vars
+                    else np.full(times.size, np.nan)
+                )
                 for name in WAVE_VARIABLES
             }
     finally:
@@ -167,7 +170,7 @@ def write_wave_state_data(
     path: Path, times: np.ndarray, metrics: dict[str, np.ndarray]
 ) -> int:
     valid = np.ones(times.size, dtype=bool)
-    for name in WAVE_VARIABLES:
+    for name in REQUIRED_WAVE_VARIABLES:
         valid &= np.isfinite(metrics[name]) & (metrics[name] >= 0)
     if not valid.any():
         raise ValueError("No valid paired swh/shww/pp1d observations found")
@@ -175,14 +178,17 @@ def write_wave_state_data(
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow([
-            "valid_time", "swh_m", "shww_m", "peak_period_s",
+            "valid_time", "swh_m", "shww_m", "shts_m", "peak_period_s",
             "swh_minus_shww_m",
         ])
+        swell_height = metrics.get("shts", np.full(times.size, np.nan))
         for index in np.flatnonzero(valid):
             combined = metrics["swh"][index]
             wind_wave = metrics["shww"][index]
+            total_swell = swell_height[index]
             writer.writerow([
                 str(times[index]), combined, wind_wave,
+                total_swell if np.isfinite(total_swell) else "",
                 metrics["pp1d"][index], combined - wind_wave,
             ])
     return int(valid.sum())
@@ -227,6 +233,7 @@ class WaveStateOutputTests(unittest.TestCase):
         metrics = {
             "swh": np.array([1.2, 1.4]),
             "shww": np.array([0.8, 0.9]),
+            "shts": np.array([0.5, 0.6]),
             "pp1d": np.array([8.0, np.nan]),
         }
         with tempfile.TemporaryDirectory() as temporary:
@@ -237,6 +244,21 @@ class WaveStateOutputTests(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertEqual(len(rows), 1)
         self.assertAlmostEqual(float(rows[0]["swh_minus_shww_m"]), 0.4)
+        self.assertEqual(float(rows[0]["shts_m"]), 0.5)
+
+    def test_swell_height_may_be_missing_from_legacy_data(self):
+        times = np.array(["2006-01-01T00"], dtype="datetime64[ns]")
+        metrics = {
+            "swh": np.array([1.2]),
+            "shww": np.array([0.8]),
+            "pp1d": np.array([8.0]),
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / OUTPUT_CSV
+            write_wave_state_data(path, times, metrics)
+            with path.open(newline="", encoding="utf-8") as handle:
+                row = next(csv.DictReader(handle))
+        self.assertEqual(row["shts_m"], "")
 
     def test_hourly_record_validation(self):
         expected = np.arange(

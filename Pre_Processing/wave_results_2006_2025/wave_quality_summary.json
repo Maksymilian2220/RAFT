@@ -1,0 +1,75 @@
+{
+  "total_hours": 175320,
+  "paired_height_hours": 175320,
+  "combined_below_wind_by_more_than_0_01m_hours": 0,
+  "three_partition_hours": 4416,
+  "energy_residual_m2_mean": 0.036929285555553054,
+  "energy_residual_m2_rmse": 0.15160899606324743,
+  "swell_energy_exceeds_wind_hours": 3229,
+  "coverage": {
+    "swh": {
+      "finite_hours": 175320,
+      "first": "2006-01-01T00:00:00.000000000",
+      "last": "2025-12-31T23:00:00.000000000"
+    },
+    "shww": {
+      "finite_hours": 175320,
+      "first": "2006-01-01T00:00:00.000000000",
+      "last": "2025-12-31T23:00:00.000000000"
+    },
+    "shts": {
+      "finite_hours": 4416,
+      "first": "2025-07-01T00:00:00.000000000",
+      "last": "2025-12-31T23:00:00.000000000"
+    },
+    "pp1d": {
+      "finite_hours": 175320,
+      "first": "2006-01-01T00:00:00.000000000",
+      "last": "2025-12-31T23:00:00.000000000"
+    },
+    "mwd": {
+      "finite_hours": 42408,
+      "first": "2018-09-01T00:00:00.000000000",
+      "last": "2025-12-31T23:00:00.000000000"
+    },
+    "mdww": {
+      "finite_hours": 42408,
+      "first": "2018-09-01T00:00:00.000000000",
+      "last": "2025-12-31T23:00:00.000000000"
+    },
+    "mdts": {
+      "finite_hours": 42408,
+      "first": "2018-09-01T00:00:00.000000000",
+      "last": "2025-12-31T23:00:00.000000000"
+    },
+    "wsp": {
+      "finite_hours": 175320,
+      "first": "2006-01-01T00:00:00.000000000",
+      "last": "2025-12-31T23:00:00.000000000"
+    }
+  },
+  "interpretation": [
+    "swh: combined Hs; shww: wind-wave Hs; shts: total-swell Hs.",
+    "swh - shww is a height increment, not swell significant height.",
+    "sqrt(max(swh^2 - shww^2, 0)) is an energy-based swell proxy.",
+    "Clipped negative energy differences remain flagged in QA counts.",
+    "Energy closure is a diagnostic, not proof of correctness.",
+    "Monthly and variable coverage must be checked before comparison.",
+    "Wave spectral peakedness wsp is not JONSWAP gamma.",
+    "Bulk Hs and Tp alone do not identify spectral gamma."
+  ],
+  "cache_file": "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\Pre_Processing\\era5_processed\\era5_point_2006_2025.parquet",
+  "location": {
+    "latitude": 59.0,
+    "longitude": -4.0
+  },
+  "directional_probability": {
+    "bin_widths": {
+      "hs_m": 0.25,
+      "tp_s": 0.25,
+      "direction_deg": 30
+    },
+    "denominator": "Finite paired Hs/pp1d/wave-direction hours per source",
+    "period_caveat": "pp1d is the combined-sea peak period, not partition Tp"
+  }
+}

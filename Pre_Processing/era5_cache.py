@@ -9,13 +9,31 @@ import numpy as np
 
 
 METRIC_COLUMNS = (
-    "shww", "swh", "pp1d", "wsp", "mwp", "mwd", "mdww", "mdts",
+    "shww", "swh", "shts", "pp1d", "wsp", "mwp", "mwd", "mdww", "mdts",
     "mp2", "mpww", "mpts", "wdw", "dwww", "dwps", "wss", "wsk",
     "hmax", "tmax", "wmb", "u10", "v10", "u100", "v100", "i10fg",
 )
+WAVE_SUPPLEMENT_VARIABLES = {
+    "significant_height_of_total_swell": "shts",
+    "wave_spectral_peakedness": "wsp",
+    "mean_wave_period": "mwp",
+    "mean_wave_direction": "mwd",
+    "mean_direction_of_wind_waves": "mdww",
+    "mean_direction_of_total_swell": "mdts",
+    "mean_zero_crossing_wave_period": "mp2",
+    "mean_period_of_wind_waves": "mpww",
+    "mean_period_of_total_swell": "mpts",
+    "wave_spectral_directional_width": "wdw",
+    "wave_spectral_skewness": "wss",
+    "wave_spectral_kurtosis": "wsk",
+    "maximum_individual_wave_height": "hmax",
+    "period_of_maximum_individual_wave": "tmax",
+    "model_bathymetry": "wmb",
+}
 DEFAULT_CACHE = Path(__file__).resolve().parent / "era5_processed" / (
-    "era5_point_2006_2020.parquet"
+    "era5_point_2006_2023.parquet"
 )
+OPTIONAL_CACHE_COLUMNS = ("shts",)
 
 
 def load_cache(path: Path, start_year: int, end_year: int):
@@ -31,7 +49,9 @@ def load_cache(path: Path, start_year: int, end_year: int):
         )
 
     frame = pd.read_parquet(path)
-    required = {"valid_time", *METRIC_COLUMNS}
+    required = {
+        "valid_time", *(set(METRIC_COLUMNS) - set(OPTIONAL_CACHE_COLUMNS))
+    }
     missing = required - set(frame.columns)
     if missing:
         raise ValueError(
@@ -58,7 +78,10 @@ def load_cache(path: Path, start_year: int, end_year: int):
         )
 
     metrics = {
-        name: frame[name].to_numpy(dtype=float)
+        name: (
+            frame[name].to_numpy(dtype=float)
+            if name in frame else np.full(times.size, np.nan)
+        )
         for name in METRIC_COLUMNS
     }
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))

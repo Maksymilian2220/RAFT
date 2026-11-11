@@ -143,7 +143,7 @@ def plot_scenario_joint(results_dir: Path, output_dir: Path) -> None:
         scenario_data.append((scenario, hs_edges, period_edges, matrix))
 
     norm = LogNorm(vmin=min(positive_values), vmax=max(positive_values))
-    colormap = plt.get_cmap("viridis").copy()
+    colormap = plt.get_cmap("turbo").copy()
     colormap.set_bad("#e6e6e6")
     for axis, (scenario, hs_edges, period_edges, matrix) in zip(
         axes[0], scenario_data
@@ -275,14 +275,25 @@ def plot_full_and_workable(
             "Joint probability: workable observations",
         ),
     ):
+        positive = np.concatenate([
+            full_matrix[np.isfinite(full_matrix) & (full_matrix > 0)],
+            retained_matrix[
+                np.isfinite(retained_matrix) & (retained_matrix > 0)
+            ],
+        ])
+        norm = LogNorm(vmin=float(positive.min()), vmax=float(positive.max()))
+        colormap = plt.get_cmap("turbo").copy()
+        colormap.set_bad("#e6e6e6")
         image = axis.pcolormesh(
-            hs_edges, period_edges, np.nan_to_num(matrix).T, shading="auto"
+            hs_edges, period_edges,
+            np.ma.masked_less_equal(matrix.T, 0), shading="auto",
+            cmap=colormap, norm=norm,
         )
         axis.set(
             xlabel="Wind-wave significant height Hs (m)",
             ylabel="Peak wave period (s)", title=title,
         )
-        figure.colorbar(image, ax=axis, label="Probability")
+        figure.colorbar(image, ax=axis, label="Probability (log scale)")
     figure.savefig(output_dir / "wave_state_distributions.png", dpi=200)
     plt.close(figure)
 
@@ -436,6 +447,145 @@ def plot_direction_rose(results_dir: Path, output_dir: Path) -> None:
     plt.close(figure)
 
 
+def plot_height_cdf(results_dir: Path, output_dir: Path) -> None:
+    path = results_dir / "wave_height_cdf.csv"
+    if not path.is_file():
+        return
+    rows = read_csv_rows(path, {"source", "sample", "hs_m", "cdf", "hours"})
+    figure, axes = plt.subplots(1, 3, figsize=(18, 5), constrained_layout=True)
+    labels = {"swh": "Combined", "shww": "Wind waves", "shts": "Total swell"}
+    colors = {"swh": "#242424", "shww": "#0072b2", "shts": "#d55e00"}
+    for source, label in labels.items():
+        for sample in ("available", "common_three_heights"):
+            selected = [row for row in rows if row["source"] == source
+                        and row["sample"] == sample]
+            if not selected:
+                continue
+            heights = np.array([float(row["hs_m"]) for row in selected])
+            cdf = np.array([float(row["cdf"]) for row in selected])
+            count = int(selected[0]["hours"])
+            axis = axes[0] if sample == "available" else axes[1]
+            axis.step(heights, cdf, where="post", color=colors[source],
+                      label=f"{label}, n={count:,}")
+            if sample == "available":
+                positive = 1 - cdf > 0
+                axes[2].step(heights[positive], (1 - cdf)[positive],
+                             where="post", color=colors[source], label=label)
+    for axis, title in zip(axes, (
+        "Available observations per variable",
+        "Common three-height observations",
+        "Exceedance: available observations",
+    )):
+        axis.set(xlabel="Significant wave height Hs (m)", title=title)
+        axis.grid(alpha=0.25)
+        if axis.lines:
+            axis.legend(fontsize=8)
+        else:
+            axis.text(0.5, 0.5, "No common observations", ha="center",
+                      transform=axis.transAxes)
+    axes[0].set(ylabel="Cumulative probability P(Hs <= h)", ylim=(0, 1))
+    axes[1].set(ylabel="Cumulative probability P(Hs <= h)", ylim=(0, 1))
+    axes[2].set(ylabel="Exceedance probability P(Hs > h)", yscale="log")
+    figure.savefig(
+        output_dir / "wave_height_cumulative_probability.png", dpi=200
+    )
+    plt.close(figure)
+
+
+def plot_partition_diagnostics(results_dir: Path, output_dir: Path) -> None:
+    path = results_dir / "wave_height_comparison.csv"
+    if not path.is_file():
+        return
+    rows = read_csv_rows(path, {"swh_m", "shww_m"})
+    if not rows or "energy_residual_m2" not in rows[0]:
+        return
+    columns = ("swh_m", "shww_m", "shts_m", "energy_swell_proxy_m",
+               "energy_residual_m2", "wind_speed_10m_ms")
+    data = {name: np.array([numeric(row[name], path, name) for row in rows])
+            for name in columns}
+    figure, axes = plt.subplots(1, 3, figsize=(18, 5), constrained_layout=True)
+    selected = (
+        np.isfinite(data["shts_m"])
+        & np.isfinite(data["energy_swell_proxy_m"])
+    )
+    if selected.any():
+        image = axes[0].hexbin(
+            data["shts_m"][selected], data["energy_swell_proxy_m"][selected],
+            gridsize=45, mincnt=1, bins="log", cmap="turbo",
+        )
+        maximum = float(max(data["shts_m"][selected].max(),
+                            data["energy_swell_proxy_m"][selected].max(), 1))
+        axes[0].plot([0, maximum], [0, maximum], "k--", linewidth=1)
+        figure.colorbar(
+            image, ax=axes[0], label="Hourly observations (log scale)"
+        )
+        axes[1].hist(
+            data["energy_residual_m2"][selected], bins=80, color="#0072b2"
+        )
+        axes[1].axvline(0, color="black", linestyle="--")
+    else:
+        for axis in axes[:2]:
+            axis.text(0.5, 0.5, "No three-height observations", ha="center",
+                      transform=axis.transAxes)
+    axes[0].set(xlabel="ERA5 total-swell Hs (m)",
+                ylabel="Energy-based swell proxy (m)",
+                title=f"Partition comparison, n={selected.sum():,}")
+    axes[1].set(xlabel="swh^2 - shww^2 - shts^2 (m^2)",
+                ylabel="Hourly observations",
+                title="Partition energy residual")
+    wind_selected = np.isfinite(data["wind_speed_10m_ms"])
+    if wind_selected.any():
+        image = axes[2].hexbin(
+            data["wind_speed_10m_ms"][wind_selected],
+            data["shww_m"][wind_selected],
+            gridsize=55, mincnt=1, bins="log", cmap="turbo",
+        )
+        figure.colorbar(
+            image, ax=axes[2], label="Hourly observations (log scale)"
+        )
+    axes[2].set(xlabel="10 m wind speed (m/s)", ylabel="Wind-wave Hs (m)",
+                title="Concurrent wind and wind waves")
+    figure.savefig(output_dir / "wave_partition_diagnostics.png", dpi=200)
+    plt.close(figure)
+
+
+def plot_directional_probability(results_dir: Path, output_dir: Path) -> None:
+    path = results_dir / "directional_wave_probability.csv"
+    if not path.is_file():
+        return
+    rows = read_csv_rows(path, {
+        "height_source", "hs_m", "tp_s", "direction_deg",
+        "probability", "paired_hours",
+    })
+    if not rows:
+        print("No paired wave-direction observations; skipping 4D plot")
+        return
+    sources = list(dict.fromkeys(row["height_source"] for row in rows))
+    figure = plt.figure(figsize=(9 * len(sources), 7), constrained_layout=True)
+    probabilities = np.array([float(row["probability"]) for row in rows])
+    norm = LogNorm(
+        vmin=float(probabilities.min()), vmax=float(probabilities.max())
+    )
+    for index, source in enumerate(sources):
+        selected = [row for row in rows if row["height_source"] == source]
+        axis = figure.add_subplot(1, len(sources), index + 1, projection="3d")
+        image = axis.scatter(
+            [float(row["hs_m"]) for row in selected],
+            [float(row["tp_s"]) for row in selected],
+            [float(row["direction_deg"]) for row in selected],
+            c=[float(row["probability"]) for row in selected], cmap="turbo",
+            norm=norm, s=12, alpha=0.8,
+        )
+        hours = int(selected[0]["paired_hours"])
+        axis.set(xlabel=f"{source} Hs (m)", ylabel="Combined peak period (s)",
+                 zlabel="Wave direction from north (deg)", zlim=(0, 360),
+                 title=f"{source}: direction-available hours, n={hours:,}")
+        figure.colorbar(image, ax=axis, shrink=0.6,
+                        label="Joint bin probability (log scale)")
+    figure.savefig(output_dir / "direction_hs_tp_probability.png", dpi=200)
+    plt.close(figure)
+
+
 def plot_results(results_dir: Path, output_dir: Path) -> None:
     metadata_path = results_dir / "metadata.json"
     if not metadata_path.is_file():
@@ -461,7 +611,146 @@ def plot_results(results_dir: Path, output_dir: Path) -> None:
     plot_additional_metrics(results_dir, output_dir)
     plot_wave_height_comparison(results_dir, output_dir)
     plot_direction_rose(results_dir, output_dir)
+    plot_height_cdf(results_dir, output_dir)
+    plot_partition_diagnostics(results_dir, output_dir)
+    plot_directional_probability(results_dir, output_dir)
+    plot_variable_coverage(results_dir, output_dir)
+    plot_jonswap_fits(results_dir, output_dir)
+    plot_jonswap_constructed(results_dir, output_dir)
     print(f"Plots written to {output_dir.resolve()}")
+
+
+def plot_variable_coverage(results_dir: Path, output_dir: Path) -> None:
+    path = results_dir / "wave_variable_coverage.csv"
+    if not path.is_file():
+        return
+    rows = read_csv_rows(path, {"month", "source", "coverage"})
+    months = sorted({row["month"] for row in rows})
+    sources = list(dict.fromkeys(row["source"] for row in rows))
+    matrix = np.zeros((len(sources), len(months)))
+    for row in rows:
+        matrix[sources.index(row["source"]), months.index(row["month"])] = (
+            float(row["coverage"])
+        )
+    figure, axis = plt.subplots(figsize=(15, 5), constrained_layout=True)
+    image = axis.imshow(matrix, aspect="auto", cmap="cividis", vmin=0, vmax=1)
+    ticks = [
+        index for index, month in enumerate(months) if month.endswith("-01")
+    ]
+    axis.set_xticks(ticks, [months[index][:4] for index in ticks], rotation=45)
+    axis.set_yticks(range(len(sources)), sources)
+    axis.set(xlabel="Year", title="Monthly finite-data coverage per variable")
+    figure.colorbar(image, ax=axis, label="Fraction of hours with data")
+    figure.savefig(output_dir / "wave_variable_coverage.png", dpi=200)
+    plt.close(figure)
+
+
+def plot_jonswap_fits(results_dir: Path, output_dir: Path) -> None:
+    path = results_dir / "jonswap_fits.csv"
+    if not path.is_file():
+        return
+    fits = read_csv_rows(path, {"spectrum_id", "gamma"})
+    curves = read_csv_rows(
+        results_dir / "jonswap_spectral_curves.csv",
+        {"spectrum_id", "frequency_hz", "observed_m2_per_hz",
+         "fitted_m2_per_hz"},
+    )
+    figure, axes = plt.subplots(
+        1, 2, figsize=(13, 5), constrained_layout=True
+    )
+    for fit in fits[:6]:
+        rows = [row for row in curves
+                if row["spectrum_id"] == fit["spectrum_id"]]
+        frequency = [float(row["frequency_hz"]) for row in rows]
+        line, = axes[0].loglog(
+            frequency, [float(row["observed_m2_per_hz"]) for row in rows],
+            label=f"{fit['spectrum_id']}, gamma={float(fit['gamma']):.2f}",
+        )
+        axes[0].loglog(
+            frequency, [float(row["fitted_m2_per_hz"]) for row in rows],
+            linestyle="--", color=line.get_color(),
+        )
+    axes[0].set(xlabel="Frequency (Hz)", ylabel="Elevation PSD (m^2/Hz)",
+                title="Measured (solid), fitted (dashed); first six spectra")
+    axes[0].legend(fontsize=8)
+    gammas = [float(fit["gamma"]) for fit in fits]
+    axes[1].hist(gammas, bins=np.linspace(1, 10, 19), color="#0072b2")
+    axes[1].axvline(np.mean(gammas), color="black", linestyle="--")
+    axes[1].set(xlabel="Fitted JONSWAP gamma", ylabel="Spectra",
+                title=f"All fits: mean={np.mean(gammas):.2f}, n={len(fits)}")
+    figure.savefig(output_dir / "jonswap_fitting.png", dpi=200)
+    plt.close(figure)
+
+
+def plot_jonswap_constructed(results_dir: Path, output_dir: Path) -> None:
+    path = results_dir / "jonswap_constructed_states.csv"
+    if not path.is_file():
+        return
+    states = read_csv_rows(
+        path, {"state_id", "hs_m", "tp_s", "probability", "iec_gamma"})
+    curves = read_csv_rows(
+        results_dir / "jonswap_constructed_spectra.csv",
+        {"state_id", "model", "gamma", "frequency_hz", "psd_m2_per_hz"},
+    )
+    distribution = read_csv_rows(
+        results_dir / "jonswap_iec_gamma_distribution.csv",
+        {"gamma_lower", "gamma_upper", "count",
+         "probability_of_positive_hs_hours"},)
+    figure, axes = plt.subplots(2, 2, figsize=(13, 9), constrained_layout=True)
+    colors = {"iec": "#202020", "assumed_1": "#0072b2",
+              "assumed_3.3": "#d55e00", "assumed_5": "#009e73"}
+    for axis, state in zip(axes.flat, states):
+        rows = [row for row in curves if row["state_id"] == state["state_id"]]
+        for model in dict.fromkeys(row["model"] for row in rows):
+            selected = [row for row in rows if row["model"] == model]
+            label = "IEC rule" if model == "iec" else "Assumed"
+            gamma = float(selected[0]["gamma"])
+            axis.plot(
+                [float(row["frequency_hz"]) for row in selected],
+                [float(row["psd_m2_per_hz"]) for row in selected],
+                label=f"{label} gamma={gamma:.3g}", color=colors.get(model),
+                linestyle="-" if model == "iec" else "--",
+                linewidth=2.2 if model == "iec" else 1.4,
+                zorder=3 if model == "iec" else 2,
+            )
+        axis.set(
+            xlim=(0, 3 / float(state["tp_s"])), xlabel="Frequency (Hz)",
+            ylabel="Elevation PSD (m^2/Hz)",
+            title=(f"{state['state_id'].replace('_', ' ')}: "
+                   f"combined Hs={float(state['hs_m']):.3f} m, "
+                   f"Tp={float(state['tp_s']):.3f} s\n"
+                   "Occupied bin occurrence: "
+                   f"{100 * float(state['probability']):.3f}%"),
+        )
+        axis.grid(alpha=0.2)
+        axis.legend(fontsize=8)
+    figure.suptitle(
+        "Constructed combined-sea JONSWAP spectra, not measured fits")
+    figure.savefig(output_dir / "jonswap_constructed_spectra.png", dpi=200)
+    plt.close(figure)
+
+    figure, axis = plt.subplots(figsize=(9, 5), constrained_layout=True)
+    lower = np.array([float(row["gamma_lower"]) for row in distribution])
+    upper = np.array([float(row["gamma_upper"]) for row in distribution])
+    probability = np.array(
+        [float(row["probability_of_positive_hs_hours"])
+         for row in distribution]
+    )
+    hours = sum(int(row["count"]) for row in distribution)
+    axis.bar(
+        lower,
+        100 * probability,
+        width=upper - lower,
+        align="edge",
+        color="#0072b2",
+        edgecolor="white")
+    axis.set(xlabel="IEC-rule gamma from hourly combined Hs/Tp (not fitted)",
+             ylabel="Positive-Hs hours (%)", xlim=(lower[0], upper[-1]),
+             title=("Hourly-weighted empirical-rule distribution: "
+                    f"{hours:,} hours"))
+    axis.grid(axis="y", alpha=0.2)
+    figure.savefig(output_dir / "jonswap_iec_gamma_distribution.png", dpi=200)
+    plt.close(figure)
 
 
 def run_self_tests() -> None:

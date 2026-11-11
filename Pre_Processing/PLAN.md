@@ -40,6 +40,15 @@ The CDS `area` order is north, west, south, east. This is a bounding box, not a 
 
 ## Analysis
 
+- Constructed combined `swh`/`pp1d` JONSWAP spectra use the RAFT IEC gamma rule
+  and assumed gamma 1/3.3/5 sensitivity, not fitted site gamma. See
+  [WAVE_DIAGNOSTICS.md](WAVE_DIAGNOSTICS.md#constructed-combined-sea-spectra)
+  for cache-only export, numerical normalization, representative-bin selection
+  and optional plotting. This does not change the serviceability filters.
+- Additional paired-height quality checks, common-sample empirical CDFs,
+  directional Hs/Tp probabilities, coverage plots and optional measured-spectral
+  JONSWAP fitting are described in `WAVE_DIAGNOSTICS.md`. Run these from the
+  prepared cache; they do not require new downloads or alter the filters below.
 - Analyze hourly records at the selected site grid point (or the explicitly agreed regional subset).
 - Bin significant wind-wave height and the selected period measure at 0.25 m and 0.25 s, respectively.
 - Use the joint Hs-period bins as the events raster for RAFT.
@@ -78,6 +87,12 @@ The agreed wind criterion uses total 10 m wind speed, `sqrt(u10**2 + v10**2)`, r
 
 ## Current workspace status
 
+### Accepted Location and Targeted Swell Backfill
+
+- The grouped backfill now defaults to `--stage 2025`; `--stage history` selects 2006-2024 and `--stage all` selects the full period. Each stage writes a separate bulk cache. Add `--include-spectra` for monthly raw full-spectrum GRIB retrieval through `reanalysis-era5-complete` (140251, all frequency/direction indices). Validate 2025 decoding and fit quality before launching historical spectra; raw GRIB retrieval alone does not export fitting-ready PSDs or gamma. See `docs/era5_wave_spectra.md` for staged commands and limitations.
+- The study accepts the existing 59 N, 4 W ERA5 point as representative and neglects its approximately 42 km displacement from the nominal farm. Retain the actual sampled coordinates in metadata; no replacement-region download is required for this study.
+- `backfill_era5_shts.py --dry-run` now plans 14 bundled requests over 2006-2025 for shts, mpww, mpts, mwd, mdww, and mdts. Compatible months are combined up to `--months-per-package 3` by default; `--months-per-package 12` reduces the fresh plan to eight requests but risks CDS cost limits. Running without `--dry-run` downloads sequentially into a separate directory and merges into a new cache, preserving existing finite data. Reduce both year/month bundle sizes if CDS rejects them. `--merge-only` retries merging without CDS requests; `--monthly-shts-only` retains the original 234-request workflow. See `docs/era5_wave_spectra.md` for commands, period conventions, and measured versus model-derived JONSWAP options.
+
 ### Wind-tagged bins and monthly workability
 
 - `calendar_month_wave_bin_statistics.csv` pools matching calendar months across every selected year (all Januaries together, all Februaries together, etc.). It uses the same bins, scenarios, wind sample counts, means, and probability fields as the year-month table, but has only a `month` grouping column. Only occupied bins are written.
@@ -93,6 +108,12 @@ The agreed wind criterion uses total 10 m wind speed, `sqrt(u10**2 + v10**2)`, r
 - Analysis and plotting are separate. Run `python Pre_Processing/wave_state_distribution.py` to regenerate CSV/JSON data, then run `python Pre_Processing/plot_wave_results.py --results-dir Pre_Processing/wave_results_2006_2020` to regenerate the four PNGs from those saved tables without rereading ERA5. Omit `--results-dir` to use the default 2006–2020 directory; use `--output-dir` to save plots elsewhere. `plot_wave_results.py --self-test` validates matrix reconstruction and regenerates figures into a temporary directory. Additional metric plots use saved marginal bins rather than the former in-memory 40-bin histograms.
 
 - Downloader: `download_era5.py`; currently configured for a Pentland-area bounding box and monthly/grouped-month CDS retrieval. Verify its `START_YEAR`, `END_YEAR`, `VARIABLES`, and area against the agreed 20-year request before downloading.
+- The standard archive coverage currently ends at 2025-06. Continue the standard download through 2025-12 with `python Pre_Processing/download_era5_continue.py --dry-run`, then run `python Pre_Processing/download_era5_continue.py`. This continuation requests only missing July–December 2025 packages and submits them sequentially to respect the CDS per-user queue limit. Do not run another CDS downloader at the same time.
+- The verified primary cache `Pre_Processing/era5_processed/era5_point_2006_2023.parquet` contains a complete hourly record from 2006 through 2023 at 59 N, 4 W. Once all 2025 archives are complete, build a separate full-range cache with `python Pre_Processing/prepare_era5_cache.py --start-year 2006 --end-year 2025 --output Pre_Processing/era5_processed/era5_point_2006_2025.parquet`. This does not overwrite the 2006–2023 cache.
+- To backfill supplementary wave fields without replacing existing wind/wave archives, use `python Pre_Processing/download_era5.py --wave-supplement --start-year 2006 --start-month 1 --end-year 2025 --end-month 12 --years-per-package 1 --workers 1`. CDS rejected 20-year supplement requests for exceeding its cost limit, and concurrent requests reached the per-user queue limit. Use sequential, smaller requests only when the queue is clear. Supplement archives are stored separately under `Pre_Processing/era5_wave_supplement/` and can be resumed; run with `--dry-run` first.
+- The standard download and wave supplement now also request ERA5 `significant_height_of_total_swell` (`shts`). New supplement archives use a `_v2_` filename prefix so packages fetched before `shts` was added are not incorrectly skipped; cache preparation reads both old and v2 names. New caches include `shts`, monthly/additional summaries report it, and `wave_state_distribution_swell.py` exports it as `shts_m`. Legacy archives/caches without `shts` remain readable; their swell-height values are missing/blank until supplemented.
+- The ERA5 MARS backend rejected `wind_wave_spectral_directional_width` and `swell_wave_spectral_directional_width` as ambiguous parameter names. They are excluded from new download requests until valid CDS variable identifiers are confirmed. Their legacy cache columns remain supported and will be blank when the source archive does not provide them.
+- Merge a supplement into an existing complete cache without overwriting it using `python Pre_Processing/prepare_era5_cache.py --base-cache Pre_Processing/era5_processed/era5_point_2006_2023.parquet --supplement-dir Pre_Processing/era5_wave_supplement --start-year 2006 --end-year 2023 --output Pre_Processing/era5_processed/era5_point_2006_2023_with_wave_metrics.parquet`. The supplement must cover every requested hour and use the same selected grid point; the output path must differ from the base cache. The merge accepts both single-year/month packages and grouped calendar-month packages. To build from regular archives instead, pass `--supplement-dir` with the usual `--input-dir`, date range, and output path.
 - Analysis: `wave_state_distribution.py`; the initial default is deliberately 2006–2020 inclusive (15 years). Set `START_YEAR`, `END_YEAR`, paths, bins, and thresholds at the top, or override years and parameters on the command line. The longer-term target remains 2006–2025; 2024 and 2025 packages are currently missing.
 - Run data analysis with `python wave_state_distribution.py`. For a short verification run, use `python wave_state_distribution.py --start-year 2006 --end-year 2006 --output-dir wave_results_validation_2006`. Analysis writes CSV/JSON data and no longer creates figures.
 - Regenerate figures afterward with `python plot_wave_results.py --results-dir wave_results_validation_2006`. By default, figures are saved under the selected results folder's `plots/` subdirectory (for example, `wave_results_2006_2020/plots/`). `--output-dir` can override this location.

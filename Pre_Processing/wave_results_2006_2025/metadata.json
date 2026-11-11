@@ -1,0 +1,183 @@
+{
+  "input_directory": "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\Pre_Processing\\era5_processed",
+  "site": {
+    "latitude": 58.6296,
+    "longitude": -3.8403666667
+  },
+  "download_area_north_west_south_east": [
+    59.0,
+    -4.0,
+    58.75,
+    -3.75
+  ],
+  "grid_selection": "nearest available wave point to site",
+  "site_inside_download_area": false,
+  "discard_summary": {
+    "wind_constraint": {
+      "hours": 621,
+      "percentage_of_valid": 0.3542094455852156
+    },
+    "height_constraint": {
+      "hours": 25711,
+      "percentage_of_valid": 14.66518366415697
+    },
+    "wind_only": {
+      "hours": 0,
+      "percentage_of_valid": 0.0
+    },
+    "height_only": {
+      "hours": 25090,
+      "percentage_of_valid": 14.310974218571754
+    },
+    "both_constraints": {
+      "hours": 621,
+      "percentage_of_valid": 0.3542094455852156
+    },
+    "either_constraint": {
+      "hours": 25711,
+      "percentage_of_valid": 14.66518366415697
+    },
+    "missing_wind": {
+      "hours": 0,
+      "percentage_of_valid": 0.0
+    },
+    "total_excluded": {
+      "hours": 25711,
+      "percentage_of_valid": 14.66518366415697
+    },
+    "retained": {
+      "hours": 149609,
+      "percentage_of_valid": 85.33481633584303
+    }
+  },
+  "discard_denominator": 175320,
+  "source_packages": [
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\Pre_Processing\\era5_processed\\era5_point_2006_2025.parquet"
+  ],
+  "monthly_source_selection": {},
+  "source_files": 1,
+  "period": {
+    "start_year": 2006,
+    "end_year": 2025
+  },
+  "valid_time_start": "2006-01-01T00:00:00.000000000",
+  "valid_time_end": "2025-12-31T23:00:00.000000000",
+  "expected_hourly_observations": 175320,
+  "valid_paired_observations": 175320,
+  "height_variable": "shww",
+  "height_label": "Significant height of wind waves",
+  "height_units": "m",
+  "peak_period_variable": "pp1d",
+  "peak_period_label": "Peak wave period",
+  "peak_period_units": "s",
+  "available_additional_wave_variables": [
+    "shts",
+    "wsp",
+    "mwp",
+    "mwd",
+    "mdww",
+    "mdts",
+    "mp2",
+    "mpww",
+    "mpts",
+    "wdw",
+    "dwww",
+    "dwps",
+    "wss",
+    "wsk",
+    "hmax",
+    "tmax",
+    "wmb"
+  ],
+  "additional_metrics": {
+    "significant_height_of_total_swell": {
+      "source_variable": "shts",
+      "units": "m"
+    },
+    "wind_speed_10m": {
+      "formula": "sqrt(u10^2 + v10^2)",
+      "units": "m s**-1"
+    },
+    "wind_direction_10m": {
+      "formula": "meteorological direction from atan2(v10, u10)",
+      "convention": "degrees clockwise from north; calm values omitted"
+    },
+    "wind_speed_100m": {
+      "formula": "sqrt(u100^2 + v100^2)",
+      "units": "m s**-1"
+    },
+    "wind_direction_100m": {
+      "formula": "meteorological direction from atan2(v100, u100)",
+      "convention": "degrees clockwise from north; calm values omitted"
+    },
+    "wind_gust_10m": {
+      "source_variable": "i10fg",
+      "units": "m s**-1"
+    },
+    "wave_spectral_peakedness": {
+      "source_variable": "wsp",
+      "units": "dimensionless"
+    },
+    "wind_grid_point": {
+      "latitude": 59.0,
+      "longitude": -4.0,
+      "selection": "exact match to wave grid point"
+    }
+  },
+  "grid_points": [
+    {
+      "latitude": 59.0,
+      "longitude": -4.0
+    }
+  ],
+  "weighting": "equal valid hourly observations at the downloaded ERA5 wave grid point",
+  "bin_widths": {
+    "height_m": 0.25,
+    "peak_period_s": 0.25
+  },
+  "wave_bin_statistics": {
+    "files": [
+      "wave_bin_statistics.csv",
+      "monthly_wave_bin_statistics.csv",
+      "calendar_month_wave_bin_statistics.csv"
+    ],
+    "rows": "occupied bins only, per scenario; shared global edges",
+    "monthly_grouping": "individual year-month, not pooled across years",
+    "calendar_month_grouping": "same calendar month pooled across all selected years; counts and finite wind samples pooled before averaging",
+    "calendar_month_summary": "calendar_month_summary.csv",
+    "annual_weighting": "all valid hourly observations, not equal monthly weights; bin wind means weighted by finite wind sample counts",
+    "conditional_probability": "bin count / scenario valid hours in group",
+    "probability_of_all_valid_hours": "bin count / all valid wave hours in group",
+    "wind_means": "arithmetic mean of finite hourly speeds in the same scenario and bin",
+    "missing_wind": "blank mean with zero sample count; not zero wind",
+    "wind_reference_heights_m": [
+      10,
+      100
+    ]
+  },
+  "height_range_m": [
+    2.4352197233561135e-16,
+    11.352294921875
+  ],
+  "peak_period_range_s": [
+    2.7239761352539062,
+    21.432464599609375
+  ],
+  "dominant_hs_bin_m": [
+    0.0,
+    0.25
+  ],
+  "dominant_peak_period_bin_s": [
+    9.75,
+    10.0
+  ],
+  "dominant_joint_probability": 0.012788044718229523,
+  "workability": {
+    "hs_max_m": 2.5,
+    "wind_speed_10m_max_ms": 20.0,
+    "retention_rule": "wind_speed_10m < wind_max and shww < hs_max",
+    "workable_observations": 149609,
+    "workable_occurrence_probability": 0.8533481633584303,
+    "workable_joint_probability_sum": 1.0
+  }
+}

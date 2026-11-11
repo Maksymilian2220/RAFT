@@ -1,0 +1,10 @@
+category,hours,percentage_of_valid
+wind_constraint,621,0.3542094455852156
+height_constraint,25711,14.66518366415697
+wind_only,0,0.0
+height_only,25090,14.310974218571754
+both_constraints,621,0.3542094455852156
+either_constraint,25711,14.66518366415697
+missing_wind,0,0.0
+total_excluded,25711,14.66518366415697
+retained,149609,85.33481633584303

@@ -33,7 +33,7 @@ HEIGHT_VARIABLE = "shww"
 PERIOD_VARIABLE = "pp1d"
 WAVE_METRICS = (HEIGHT_VARIABLE, PERIOD_VARIABLE)
 OPTIONAL_WAVE_METRICS = (
-    "wsp", "mwp", "mwd", "mdww", "mdts", "mp2", "mpww", "mpts",
+    "shts", "wsp", "mwp", "mwd", "mdww", "mdts", "mp2", "mpww", "mpts",
     "wdw", "dwww",
     "dwps", "wss", "wsk", "hmax", "tmax", "wmb",
 )
@@ -426,6 +426,7 @@ def write_monthly_summary(
 ) -> None:
     monthly_metrics = (
         ("shww", "mean_shww_m", False),
+        ("shts", "mean_total_swell_height_m", False),
         ("pp1d", "mean_peak_period_s", False),
         ("mwp", "mean_wave_period_s", False),
         ("wind_speed_10m", "mean_wind_speed_10m_ms", False),
@@ -509,6 +510,9 @@ def write_metric_summary(
     units: dict[str, str],
 ) -> None:
     derived = {
+        "significant_height_of_total_swell": (
+            metrics["shts"], "m"
+        ),
         "wind_speed_10m": (metrics["wind_speed_10m"], "m s**-1"),
         "wind_speed_100m": (metrics["wind_speed_100m"], "m s**-1"),
         "wind_gust_10m": (metrics["i10fg"], units["i10fg"]),
@@ -954,6 +958,9 @@ def run_archive_analysis(args: argparse.Namespace) -> None:
     )
 
     additional_metrics = {
+        "significant_height_of_total_swell": (
+            metrics["shts"], metric_units["shts"], 0.25
+        ),
         "wind_speed_10m": (speed_10m, "m s**-1", 1.0),
         "wind_speed_100m": (speed_100m, "m s**-1", 1.0),
         "wind_gust_10m": (metrics["i10fg"], metric_units["i10fg"], 1.0),
@@ -1029,6 +1036,10 @@ def run_archive_analysis(args: argparse.Namespace) -> None:
             if np.isfinite(metrics[name]).any()
         ],
         "additional_metrics": {
+            "significant_height_of_total_swell": {
+                "source_variable": "shts",
+                "units": metric_units["shts"],
+            },
             "wind_speed_10m": {
                 "formula": "sqrt(u10^2 + v10^2)",
                 "units": "m s**-1",
@@ -1205,6 +1216,7 @@ class DistributionOutputTests(unittest.TestCase):
         }
         self.metrics.update({
             "shww": np.array([0.2, 0.4, 1.5, 0.5]),
+            "shts": np.array([0.1, 0.3, 0.7, 0.2]),
             "pp1d": np.array([0.5, 0.5, 1.5, 0.5]),
             "wind_speed_10m": np.array([2., 20., 4., 8.]),
             "wind_speed_100m": np.array([4., np.nan, np.nan, 12.]),
@@ -1335,6 +1347,7 @@ class DistributionOutputTests(unittest.TestCase):
                 rows = list(csv.DictReader(handle))
         self.assertEqual(len(rows), 24)
         self.assertEqual(rows[0]["workable_occurrence_probability"], "0.5")
+        self.assertEqual(rows[0]["mean_total_swell_height_m"], "0.2")
         self.assertEqual(rows[0]["workable_occurrence_percent"], "50.0")
         self.assertEqual(rows[1]["workable_occurrence_percent"], "100.0")
         self.assertEqual(rows[2]["workable_occurrence_percent"], "")
