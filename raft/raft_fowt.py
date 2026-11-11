@@ -1766,6 +1766,7 @@ class FOWT():
             elif case['wave_spectrum'][ih] == 'constant':
                 self.S[ih,:] = case['wave_height'][ih]
                 self.zeta[ih,:] = np.sqrt(2*self.S*self.dw)
+            
             elif case['wave_spectrum'][ih] == 'JONSWAP':
                 self.S[ih,:] = JONSWAP(self.w, case['wave_height'][ih], case['wave_period'][ih], Gamma=case['wave_gamma'][ih])        
                 self.zeta[ih,:] = np.sqrt(2*self.S[ih,:]*self.dw)    # wave elevation amplitudes (these are easiest to use)
@@ -2638,7 +2639,15 @@ class FOWT():
                 speed = getFromDict(case, 'wind_speed', shape=0, default=10.0)
         
             # rotor-related outputs are only available if aerodynamics modeling is enabled
-            if rot.aeroServoMod > 1 and speed > 0.0:
+            turbine_status = getFromDict(
+                case, 'turbine_status', shape=0, dtype=str,
+                default='operating',
+            )
+            if (
+                turbine_status == 'operating'
+                and rot.aeroServoMod > 1
+                and speed > 0.0
+            ):
             
                 # compute spectra of rotor azimuth variation, rotor speed, generator torque, and blade pitch
                 for ih in range(self.nWaves):
@@ -3076,4 +3085,3 @@ class FOWT():
                     f.write(",\n")
             f.write("]\n")
             f.write('}\n')
-
