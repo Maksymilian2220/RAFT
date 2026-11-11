@@ -7,9 +7,11 @@ Step 2: load wave-state probabilities from the ERA5 preprocessing output.
 Run from the RAFT/examples folder (or point YAML at the file).
 """
 import csv
+import copy
 import numpy as np
 import yaml
 import raft
+from raft.helpers import JONSWAP
 from pathlib import Path
  
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -20,21 +22,22 @@ WAVE_DISTRIBUTION = (
 )
 STEADY_WIND_SPEED = 10.0
 STEADY_TURBULENCE = 0.0
+SENSITIVITY_WAVE_HEADINGS = (0.0, 15.0, 30.0, 45.0, 60.0)
  
 KEYS_DEFAULT = ["wind_speed", "wind_heading", "turbulence", "turbine_status",
                 "yaw_misalign", "wave_spectrum", "wave_period", "wave_height",
                 "wave_heading"]  # check against the header of YOUR yaml
- 
- 
+
+
 def load_design(path=YAML):
     with open(path) as f:
         return yaml.load(f, Loader=yaml.FullLoader)
  
  
-def run(design):
+def run(design, display=1):
     model = raft.Model(design)
     model.analyzeUnloaded()
-    model.analyzeCases(display=1)
+    model.analyzeCases(display=display)
     return model
  
  
@@ -82,282 +85,198 @@ def wave_distribution_to_cases(
     return rows, probabilities
 
 
-def plot_results(model, cases, probabilities, output_dir):
-    """Save environmental and response plots for the analyzed cases."""
-    import matplotlib.pyplot as plt
-
+def save_natural_frequencies(model, output_dir):
+    """Solve and save the linearized system natural frequencies and periods."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    frequencies_hz, modes = model.solveEigen(display=0)
+    frequencies_hz = np.real(np.asarray(frequencies_hz, dtype=float))
 
-    wave_period = np.array([case[6] for case in cases])
-    wave_height = np.array([case[7] for case in cases])
-    probabilities = np.asarray(probabilities)
+    mode_path = output_dir / "natural_modes.json"
+    if len(model.fowtList) == 1 and hasattr(
+            model.fowtList[0], "write_modes_json"):
+        model.fowtList[0].write_modes_json(
+            str(mode_path),
+            frequencies_hz,
+            modes,
+        )
 
-    fig, axis = plt.subplots(figsize=(8, 5))
-    scatter = axis.scatter(wave_period, wave_height, c=probabilities,
-                           s=40 + 900 * probabilities, cmap="viridis",
-                           edgecolors="black", linewidths=0.3)
-    axis.set_xlabel("Wave period used by RAFT (s)")
-    axis.set_ylabel("Significant wave height (m)")
-    axis.set_title("ERA5 wave cases and probabilities")
-    fig.colorbar(scatter, ax=axis, label="Probability")
-    fig.tight_layout()
-    fig.savefig(output_dir / "wave_cases.png", dpi=180)
-    plt.close(fig)
+    with (output_dir / "natural_frequencies.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["mode", "natural_frequency_hz", "natural_period_s"])
+        for mode, frequency_hz in enumerate(frequencies_hz, start=1):
+            writer.writerow([
+                mode,
+                frequency_hz,
+                1.0 / frequency_hz if frequency_hz > 0.0 else np.inf,
+            ])
 
+    print(f"Saved natural frequencies to {output_dir / 'natural_frequencies.csv'}")
+    if mode_path.exists():
+        print(f"Saved mode shapes to {mode_path}")
+    return frequencies_hz, modes
+
+
+def save_plot_data(model, cases, probabilities, output_dir):
+    """Save all frequency-domain data required by the plotting script."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    frequencies_rad = np.asarray(model.results["freq_rad"], dtype=float)
+    frequencies_hz = frequencies_rad / (2.0 * np.pi)
+    fowt = model.fowtList[0]
     metrics = model.results["case_metrics"]
-    metric_names = ["surge_std", "sway_std", "heave_std", "roll_std",
-                    "pitch_std", "yaw_std"]
-    labels = ["Surge (m)", "Sway (m)", "Heave (m)", "Roll (deg)",
-              "Pitch (deg)", "Yaw (deg)"]
+    response_names = (
+        ("surge_RA", False),
+        ("sway_RA", False),
+        ("heave_RA", False),
+        ("roll_RA", True),
+        ("pitch_RA", True),
+        ("yaw_RA", True),
+        ("nacelle_surge_RA", False),
+    )
+    psd_names = ("heave_PSD", "pitch_PSD", "surge_PSD", "yaw_PSD")
+    summary_names = (
+        "surge_std", "sway_std", "heave_std", "roll_std", "pitch_std",
+        "yaw_std",
+    )
 
-    fig, axes = plt.subplots(2, 3, figsize=(13, 7), sharex=True)
-    for axis, metric_name, label in zip(axes.flat, metric_names, labels):
-        values = []
-        for case_metrics in metrics.values():
-            fowt_metrics = case_metrics[0]
-            values.append(float(np.asarray(fowt_metrics[metric_name]).squeeze()))
-        axis.scatter(wave_height, values, c=probabilities, cmap="viridis",
-                     edgecolors="black", linewidths=0.3)
-        axis.set_title(label)
-        axis.set_xlabel("Significant wave height (m)")
-        axis.set_ylabel("RAFT RMS response")
-        axis.grid(alpha=0.25)
-    fig.suptitle("RAFT RMS response versus wave height")
-    fig.tight_layout()
-    fig.savefig(output_dir / "response_rms_vs_height.png", dpi=180)
-    plt.close(fig)
-
-    wave_height_norm = plt.Normalize(vmin=np.min(wave_height),
-                                     vmax=np.max(wave_height))
-    fig, axes = plt.subplots(2, 3, figsize=(13, 7), sharex=True)
-    for axis, metric_name, label in zip(axes.flat, metric_names, labels):
-        values = [float(np.asarray(metrics[case_index][0][metric_name]).squeeze())
-                  for case_index in range(len(cases))]
-        scatter = axis.scatter(wave_period, values, c=wave_height,
-                               cmap="plasma", norm=wave_height_norm,
-                               edgecolors="black", linewidths=0.3)
-        axis.set_title(label)
-        axis.set_xlabel("Wave period (s)")
-        axis.set_ylabel("RAFT RMS response")
-        axis.grid(alpha=0.25)
-    fig.colorbar(scatter, ax=axes, label="Significant wave height (m)")
-    fig.suptitle("RAFT RMS response versus wave period")
-    fig.tight_layout()
-    fig.savefig(output_dir / "response_rms_vs_period.png", dpi=180)
-    plt.close(fig)
-
-    ranked_metric_names = []
-    metric_rms = []
-    for metric_name in metric_names:
-        values = np.asarray([
-            float(np.asarray(metrics[case_index][0][metric_name]).squeeze())
-            for case_index in range(len(cases))
+    with (output_dir / "plot_frequency_data.csv").open(
+            "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([
+            "case_index", "probability", "wave_height_m", "wave_period_s",
+            "frequency_hz", *psd_names,
+            "surge_rao", "sway_rao", "heave_rao", "roll_rao",
+            "pitch_rao", "yaw_rao", "nacelle_surge_rao",
         ])
-        metric_rms.append(values.mean())
-        ranked_metric_names.append(metric_name)
-    top3 = np.argsort(metric_rms)[::-1][:3]
-    dominant_metric_names = [ranked_metric_names[idx] for idx in top3]
-    dominant_labels = [labels[idx] for idx in top3]
+        for case_index, case in enumerate(cases):
+            case_metrics = metrics[case_index][0]
+            wave_spectrum = JONSWAP(
+                frequencies_rad,
+                float(case[7]),
+                float(case[6]),
+                Gamma=float(case[9]) if len(case) > 9 else 0.0,
+            )
+            wave_amplitude = np.sqrt(2.0 * wave_spectrum * fowt.dw)
+            responses = []
+            for response_name, rotational in response_names:
+                response = np.asarray(case_metrics[response_name])[0]
+                response = np.asarray(response).squeeze()
+                if response.ndim != 1 or response.size != len(frequencies_hz):
+                    raise ValueError(
+                        f"{response_name} must contain one frequency series; "
+                        f"got shape {np.asarray(case_metrics[response_name]).shape}"
+                    )
+                if rotational:
+                    response = response * np.pi / 180.0
+                responses.append(np.abs(np.divide(
+                    response,
+                    wave_amplitude,
+                    out=np.zeros_like(response, dtype=complex),
+                    where=wave_amplitude > 0.0,
+                )))
+            psds = [np.asarray(case_metrics[name], dtype=float) for name in psd_names]
+            for frequency_index, frequency_hz in enumerate(frequencies_hz):
+                writer.writerow([
+                    case_index + 1,
+                    probabilities[case_index],
+                    case[7],
+                    case[6],
+                    frequency_hz,
+                    *(psd[frequency_index] for psd in psds),
+                    *(response[frequency_index] for response in responses),
+                ])
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharex=True)
-    for axis, metric_name, label in zip(axes, dominant_metric_names,
-                                        dominant_labels):
-        values = [float(np.asarray(metrics[case_index][0][metric_name]).squeeze())
-                  for case_index in range(len(cases))]
-        scatter = axis.scatter(wave_period, values, c=wave_height,
-                               cmap="plasma", norm=wave_height_norm,
-                               edgecolors="black", linewidths=0.3)
-        axis.set_title(label)
-        axis.set_xlabel("Wave period (s)")
-        axis.set_ylabel("RAFT RMS response")
-        axis.grid(alpha=0.25)
-    fig.colorbar(scatter, ax=axes, label="Significant wave height (m)")
-    fig.suptitle("Most affected DOFs by mean RMS response")
-    fig.tight_layout()
-    fig.savefig(output_dir / "response_rms_vs_period_top3.png", dpi=180)
-    plt.close(fig)
-
-    fig, axes = plt.subplots(2, 3, figsize=(15, 8), sharex=True,
-                             sharey=True)
-    for axis, metric_name, label in zip(axes.flat, metric_names, labels):
-        values = np.array([
-            float(np.asarray(metrics[case_index][0][metric_name]).squeeze())
-            for case_index in range(len(cases))
+    with (output_dir / "plot_case_summary.csv").open(
+            "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([
+            "case_index", "probability", "wave_height_m", "wave_period_s",
+            *summary_names,
         ])
-        scatter = axis.scatter(wave_period, wave_height, c=values,
-                               cmap="viridis", edgecolors="black",
-                               linewidths=0.3)
-        axis.set_title(label)
-        axis.set_xlabel("Wave period (s)")
-        axis.set_ylabel("Significant wave height (m)")
-        axis.grid(alpha=0.25)
-        fig.colorbar(scatter, ax=axis, label=f"{label} RMS")
-    fig.suptitle("RAFT RMS response by wave period and significant wave height")
-    fig.tight_layout()
-    fig.savefig(output_dir / "response_rms_period_height_map.png", dpi=180)
-    plt.close(fig)
+        for case_index, case in enumerate(cases):
+            case_metrics = metrics[case_index][0]
+            writer.writerow([
+                case_index + 1,
+                probabilities[case_index],
+                case[7],
+                case[6],
+                *(float(np.asarray(case_metrics[name]).squeeze())
+                  for name in summary_names),
+            ])
 
-    envelope_names = ["surge", "sway", "heave", "roll", "pitch", "yaw"]
-    wave_periods = np.unique(wave_period)
-    fig, axes = plt.subplots(2, 3, figsize=(13, 7), sharex=True)
-    for axis, response_name, label in zip(axes.flat, envelope_names, labels):
-        average = [metrics[i][0][response_name + "_avg"]
-                   for i in range(len(cases))]
-        maximum = [metrics[i][0][response_name + "_max"]
-                   for i in range(len(cases))]
-        minimum = [metrics[i][0][response_name + "_min"]
-                   for i in range(len(cases))]
-        for period in wave_periods:
-            selected = wave_period == period
-            order = np.argsort(wave_height[selected])
-            height = wave_height[selected][order]
-            axis.plot(height, np.asarray(average)[selected][order],
-                      label=f"T={period:.0f} s")
-            axis.plot(height, np.asarray(maximum)[selected][order],
-                      color=axis.lines[-1].get_color(), linestyle="--")
-            axis.plot(height, np.asarray(minimum)[selected][order],
-                      color=axis.lines[-1].get_color(), linestyle=":")
-        axis.set_title(label)
-        axis.set_xlabel("Significant wave height (m)")
-        axis.set_ylabel("Response")
-        axis.grid(alpha=0.25)
-    axes[0, 0].legend(fontsize=8, title="Wave period")
-    fig.suptitle("RAFT response envelopes by wave height")
-    fig.tight_layout()
-    fig.savefig(output_dir / "response_envelopes.png", dpi=180)
-    plt.close(fig)
+    print(f"Saved plotting data to {output_dir / 'plot_frequency_data.csv'}")
+    print(f"Saved case summary to {output_dir / 'plot_case_summary.csv'}")
 
-    fig, axes = plt.subplots(2, 3, figsize=(13, 7), sharex=True)
-    for axis, response_name, label in zip(axes.flat, envelope_names, labels):
-        average = np.array([metrics[i][0][response_name + "_avg"]
-                            for i in range(len(cases))])
-        maximum = np.array([metrics[i][0][response_name + "_max"]
-                            for i in range(len(cases))])
-        minimum = np.array([metrics[i][0][response_name + "_min"]
-                            for i in range(len(cases))])
-        peak_magnitude = np.maximum(np.abs(maximum), np.abs(minimum))
-        for period in wave_periods:
-            selected = wave_period == period
-            order = np.argsort(wave_height[selected])
-            height = wave_height[selected][order]
-            axis.fill_between(height, minimum[selected][order],
-                              maximum[selected][order], alpha=0.12)
-            axis.plot(height, peak_magnitude[selected][order], "o-",
-                      label=f"T={period:.0f} s")
-        axis.axhline(average[0], color="black", linestyle="--",
-                     label="Mean offset")
-        axis.set_title(label)
-        axis.set_xlabel("Significant wave height (m)")
-        axis.set_ylabel("Total response")
-        axis.grid(alpha=0.25)
-    axes[0, 0].legend(fontsize=8, title="Wave period")
-    fig.suptitle("Total RAFT response including static offset")
-    fig.tight_layout()
-    fig.savefig(output_dir / "total_response.png", dpi=180)
-    plt.close(fig)
 
-    fig, axes = plt.subplots(2, 3, figsize=(13, 7), sharex=True)
-    for axis, response_name, metric_name, label in zip(
-            axes.flat, envelope_names, metric_names, labels):
-        maximum = np.array([metrics[i][0][response_name + "_max"]
-                            for i in range(len(cases))])
-        rms = np.array([float(np.asarray(metrics[i][0][metric_name]).squeeze())
-                        for i in range(len(cases))])
-        order = np.argsort(wave_height)
-        axis.plot(wave_height[order], maximum[order], "o-",
-                  label="Maximum (mean + 3 RMS)")
-        axis.plot(wave_height[order], rms[order], "s--",
-                  label="RMS / SD")
-        axis.set_title(label)
-        axis.set_xlabel("Significant wave height (m)")
-        axis.set_ylabel("Response")
-        axis.grid(alpha=0.25)
-    axes[0, 0].legend(fontsize=8)
-    fig.suptitle("Maximum and RMS response by wave height")
-    fig.tight_layout()
-    fig.savefig(output_dir / "response_max_rms_sd.png", dpi=180)
-    plt.close(fig)
+def run_wave_direction_sensitivity(
+        design, cases, probabilities, output_dir, case_indices,
+        folder_name, headings=SENSITIVITY_WAVE_HEADINGS):
+    """Run selected cases at several wave headings."""
+    output_dir = Path(output_dir) / folder_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    probabilities = np.asarray(probabilities, dtype=float)
+    case_indices = np.asarray(case_indices, dtype=int)
+    headings = tuple(float(heading) for heading in headings)
 
-    weighted_rms = []
-    for metric_name in metric_names:
-        values = np.array([float(np.asarray(metrics[i][0][metric_name]).squeeze())
-                           for i in range(len(cases))])
-        weighted_rms.append(np.sum(values * probabilities) / probabilities.sum())
-    fig, axis = plt.subplots(figsize=(9, 5))
-    axis.bar(labels, weighted_rms, color="steelblue")
-    axis.set_ylabel("Probability-weighted RMS response")
-    axis.set_title("Probability-weighted RAFT response")
-    axis.tick_params(axis="x", rotation=30)
-    axis.grid(axis="y", alpha=0.25)
-    fig.tight_layout()
-    fig.savefig(output_dir / "weighted_response.png", dpi=180)
-    plt.close(fig)
+    sensitivity_cases = []
+    case_metadata = []
+    for rank, case_index in enumerate(case_indices, start=1):
+        for heading in headings:
+            case = list(cases[int(case_index)])
+            case[8] = heading
+            sensitivity_cases.append(case)
+            case_metadata.append((rank, int(case_index), heading))
 
-    frequencies_hz = np.asarray(model.results["freq_rad"]) / (2.0 * np.pi)
-    case_metrics = model.results["case_metrics"]
-    common_case_indices = np.argsort(probabilities)[::-1][:5]
-    psd_names = ["heave_PSD", "pitch_PSD", "surge_PSD", "yaw_PSD"]
-    psd_labels = ["Heave PSD (m^2/Hz)", "Pitch PSD (deg^2/Hz)",
-                  "Surge PSD (m^2/Hz)", "Yaw PSD (deg^2/Hz)"]
+    sensitivity_design = copy.deepcopy(design)
+    sensitivity_design["cases"] = {
+        "keys": list(KEYS_DEFAULT),
+        "data": sensitivity_cases,
+    }
+    sensitivity_model = run(sensitivity_design, display=0)
+    metrics = sensitivity_model.results["case_metrics"]
 
-    fig, axes = plt.subplots(2, 2, figsize=(13, 8), sharex=True)
-    for axis, psd_name, label in zip(axes.flat, psd_names, psd_labels):
-        for case_index in common_case_indices:
-            spectrum = np.asarray(case_metrics[int(case_index)][0][psd_name])
-            axis.plot(
-                frequencies_hz,
-                spectrum,
-                label=(f"Case {case_index + 1}: Hs={cases[case_index][7]:.2f} m, "
-                       f"T={cases[case_index][6]:.1f} s, "
-                       f"P={probabilities[case_index]:.1%}"),
-            )
-        axis.set_title(label.split(" (")[0])
-        axis.set_ylabel(label.split(" (")[1].rstrip(")"))
-        axis.grid(alpha=0.25)
-        axis.legend(fontsize=7)
-    for axis in axes[1]:
-        axis.set_xlabel("Frequency (Hz)")
-    fig.suptitle("Response PSDs for the five most probable ERA5 cases")
-    fig.tight_layout()
-    fig.savefig(output_dir / "common_case_psds.png", dpi=180)
-    plt.close(fig)
+    channel_specs = (
+        ("surge_std", "Surge RMS (m)"),
+        ("sway_std", "Sway RMS (m)"),
+        ("heave_std", "Heave RMS (m)"),
+        ("roll_std", "Roll RMS (deg)"),
+        ("pitch_std", "Pitch RMS (deg)"),
+        ("yaw_std", "Yaw RMS (deg)"),
+        ("AxRNA_std", "Nacelle longitudinal acceleration RMS (m/s²)"),
+    )
+    csv_path = output_dir / "wave_direction_sensitivity.csv"
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([
+            "case_rank", "original_case_index", "probability",
+            "wave_height_m", "wave_period_s", "wave_heading_deg",
+            *(name for name, _ in channel_specs),
+        ])
+        for sensitivity_index, (rank, case_index, heading) in enumerate(
+                case_metadata):
+            fowt_metrics = metrics[sensitivity_index][0]
+            values = []
+            for name, _ in channel_specs:
+                value = np.asarray(fowt_metrics[name]).squeeze()
+                values.append(float(np.ravel(value)[0]))
+            writer.writerow([
+                rank,
+                case_index + 1,
+                probabilities[case_index],
+                cases[case_index][7],
+                cases[case_index][6],
+                heading,
+                *values,
+            ])
 
-    response_values = np.array([
-        [
-            float(np.asarray(case_metrics[case_index][0][metric_name]).squeeze())
-            for metric_name in metric_names
-        ]
-        for case_index in range(len(cases))
-    ])
-    response_scales = np.maximum(response_values.max(axis=0), 1e-12)
-    response_score = (response_values / response_scales).max(axis=1)
-    critical_case_count = min(5, len(cases))
-    critical_case_indices = np.argsort(response_score)[::-1][:critical_case_count]
+    print(f"Saved wave-direction sensitivity results to {csv_path}")
+    print(f"Wave headings analyzed: {', '.join(f'{h:g}°' for h in headings)}")
+    return sensitivity_model
 
-    fig, axes = plt.subplots(2, 2, figsize=(13, 8), sharex=True)
-    for axis, psd_name, label in zip(axes.flat, psd_names, psd_labels):
-        for rank, case_index in enumerate(critical_case_indices, start=1):
-            spectrum = np.asarray(case_metrics[case_index][0][psd_name])
-            axis.plot(
-                frequencies_hz,
-                spectrum,
-                label=(f"Response rank {rank}: Case {case_index + 1}, "
-                       f"Hs={wave_height[case_index]:.2f} m, "
-                       f"T={wave_period[case_index]:.1f} s, "
-                       f"score={response_score[case_index]:.2f}"),
-            )
-        axis.set_title(label.split(" (")[0])
-        axis.set_ylabel(label.split(" (")[1].rstrip(")"))
-        axis.grid(alpha=0.25)
-        axis.legend(fontsize=8)
-    for axis in axes[1]:
-        axis.set_xlabel("Frequency (Hz)")
-    fig.suptitle("Response PSDs for the five most critical wave cases")
-    fig.tight_layout()
-    fig.savefig(output_dir / "critical_case_psds.png", dpi=180)
-    plt.close(fig)
- 
+
 def step2_workability():
     design = load_design()
 
@@ -376,8 +295,35 @@ def step2_workability():
     )
 
     np.save(REPO_ROOT / "case_probs.npy", probs)
-    plot_results(model, rows, probs, REPO_ROOT / "results")
+    output_dir = REPO_ROOT / "results" / "special_course_full"
+    natural_frequencies_hz, _ = save_natural_frequencies(model, output_dir)
+    save_plot_data(model, rows, probs, output_dir)
+    probabilities = np.asarray(probs, dtype=float)
+    common_case_indices = np.argsort(probabilities)[::-1][:5]
+    summary_names = (
+        "surge_std", "sway_std", "heave_std",
+        "roll_std", "pitch_std", "yaw_std",
+    )
+    summary_values = np.array([
+        [
+            float(np.asarray(model.results["case_metrics"][case_index][0][name]).squeeze())
+            for name in summary_names
+        ]
+        for case_index in range(len(rows))
+    ])
+    scale = np.maximum(np.max(summary_values, axis=0), 1e-12)
+    scores = np.max(summary_values / scale, axis=1)
+    critical_case_indices = np.argsort(scores)[::-1][:5]
+    run_wave_direction_sensitivity(
+        design, rows, probs, output_dir, common_case_indices,
+        "sensitivity_wave_direction",
+    )
+    run_wave_direction_sensitivity(
+        design, rows, probs, output_dir, critical_case_indices,
+        "sensitivity_wave_direction_critical",
+    )
     return model, probs
+
  
  
 if __name__ == "__main__":
