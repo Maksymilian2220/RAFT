@@ -757,7 +757,27 @@ def JONSWAP(ws, Hs, Tp, Gamma=None):
 
     Alpha = np.exp( -0.5*((f*Tp - 1.0)/Sigma)**2 )
 
-    return  0.5/np.pi *C* 0.3125*Hs*Hs*fpOvrf4/f *np.exp( -1.25*fpOvrf4 )* Gamma**Alpha
+    S = (
+        0.5 / np.pi
+        * C
+        * 0.3125
+        * Hs
+        * Hs
+        * fpOvrf4
+        / f
+        * np.exp(-1.25 * fpOvrf4)
+        * Gamma**Alpha
+    )
+
+    # Normalize on the supplied frequency grid so Hs remains the
+    # significant wave height for strongly peaked spectra as well.
+    if len(ws) > 1:
+        target_m0 = Hs * Hs / 16.0
+        m0 = np.trapz(S, ws)
+        if m0 > 0.0:
+            S *= target_m0 / m0
+
+    return S
 
 def getRAO(Xi, zeta):
     '''Calculates the response amplitude operator (RAO).

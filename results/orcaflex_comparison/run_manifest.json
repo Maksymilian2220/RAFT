@@ -1,8 +1,8 @@
 {
-  "time_csv": "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\time_response.csv",
-  "rao_csv": "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\RAO_response.csv",
-  "output": "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\results\\orcaflex_comparison",
-  "design": "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\designs\\VolturnUS-S.yaml",
+  "time_csv": "/Users/maksiu/Desktop/DTU/Special course FOWT/RAFT/OrcaFlex_Results/time_response.csv",
+  "rao_csv": "/Users/maksiu/Desktop/DTU/Special course FOWT/RAFT/OrcaFlex_Results/RAO_response.csv",
+  "output": "/Users/maksiu/Desktop/DTU/Special course FOWT/RAFT/results/orcaflex_comparison",
+  "design": "/Users/maksiu/Desktop/DTU/Special course FOWT/RAFT/designs/VolturnUS-S.yaml",
   "wave_height": 0.125,
   "period": 9.875,
   "wind_speed_10m": 3.93,
@@ -21,8 +21,8 @@
   "turbulence": 0,
   "wave_amplitude_m": 0.0625,
   "input_sha256": {
-    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\time_response.csv": "30dff4cd9f74b8ea4c6f852ef5045c31a729703a1e63fd1767917c73a40ee78f",
-    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\RAO_response.csv": "13295e33f064eb6c9ce4db38d324f7cae4e3fb1acaac85e1e074f3068cc9c401"
+    "/Users/maksiu/Desktop/DTU/Special course FOWT/RAFT/OrcaFlex_Results/time_response.csv": "543640fe62a0626638eb1ca483122286ea5e7432078adf89fcb8697467887940",
+    "/Users/maksiu/Desktop/DTU/Special course FOWT/RAFT/OrcaFlex_Results/RAO_response.csv": "e140ce65f4a14e012704a63b8ad2125130bea759c46a26e85b7dce1ab4300035"
   },
   "raft_status": "not requested"
 }

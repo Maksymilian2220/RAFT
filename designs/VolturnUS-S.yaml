@@ -3,8 +3,8 @@ name: IEA 15 MW with VolturnUS-S steel semi
 
 
 settings:                   # global Settings
-    min_freq     :  0.005   #  [Hz]       lowest frequency to consider, also the frequency bin width 
-    max_freq     :  0.40    #  [Hz]       highest frequency to consider
+    min_freq     :  0.001   #  [Hz]       lowest frequency to consider, also the frequency bin width 
+    max_freq     :  0.30    #  [Hz]       highest frequency to consider
     XiStart      :   0      # sets initial amplitude of each DOF for all frequencies
     nIter        :  10      # sets how many iterations to perform in Model.solveDynamics()
     staticsMod   :   0      # sets hydrostatic stiffness approach in Model.solveStaticss (0) constant stiffness matrix or (1) nonlinear 

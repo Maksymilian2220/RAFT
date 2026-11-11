@@ -5,7 +5,7 @@ heave,motion,OrcaFlex platform-origin RAO prediction,0.023005993554179743,0.0162
 roll,motion,OrcaFlex platform-origin RAO prediction,2.6346676605461676e-06,1.8629913689450919e-06,deg
 pitch,motion,OrcaFlex platform-origin RAO prediction,0.01684472221576788,0.011911017305973153,deg
 yaw,motion,OrcaFlex platform-origin RAO prediction,2.7543508983669645e-06,1.94762019800254e-06,deg
-surge,acceleration,OrcaFlex platform-origin RAO prediction,0.007844989579277978,0.005547245329845258,m/s^2
+surge,acceleration,OrcaFlex platform-origin RAO prediction,0.00784498957927798,0.00554724532984526,m/s^2
 sway,acceleration,OrcaFlex platform-origin RAO prediction,1.043456351613835e-07,7.378350620983172e-08,m/s^2
 heave,acceleration,OrcaFlex platform-origin RAO prediction,0.009313791722455384,0.006585845285507336,m/s^2
 roll,acceleration,OrcaFlex platform-origin RAO prediction,1.0666240425750958e-06,7.54217093481459e-07,deg/s^2
