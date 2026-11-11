@@ -2446,6 +2446,8 @@ class FOWT():
             results['AzRNA_max'][ir]   = results['AzRNA_avg'][ir]+3*results['AzRNA_std'][ir]
             results['AzRNA_min'][ir]   = results['AzRNA_avg'][ir]-3*results['AzRNA_std'][ir]
 
+        results['nacelle_surge_RA'] = XiHub[:, 0::6, :]
+
 
         # tower base bending moment
         # TODO: should we compute the loads on all joints in solveStatics() and solveDynamics()?
