@@ -10,7 +10,12 @@ python Pre_Processing/backfill_era5_shts.py --stage 2025 --years-per-package 1 -
 python Pre_Processing/backfill_era5_shts.py --stage 2025 --years-per-package 1 --months-per-package 3 --include-spectra
 ```
 
-This plans six bulk packages and twelve monthly spectral requests, all hourly.
+This plans six bulk packages and 365 daily spectral requests for 2025, all hourly.
+Spectral requests are assembled into twelve monthly GRIB files. Each daily
+request retains all 720 frequency/direction bins and all 24 hours; no temporal
+or spectral downsampling is applied. Full-month spectral requests were rejected
+by CDS with `403 cost limits exceeded`. Daily requests reduce their field count
+to 17,280, but live acceptance of the smaller requests is not yet verified.
 It writes a separate 2025 bulk cache. Full spectra use the separate
 `reanalysis-era5-complete` archive product, stream `wave`, parameter `140251`,
 all 30 frequency indices and 24 direction indices. Requests select the accepted
@@ -37,6 +42,20 @@ after a bulk output already exists:
 ```powershell
 python Pre_Processing/download_era5_spectra.py --start-year 2025 --end-year 2025
 ```
+
+If spectra fail after all bulk archives finish, the combined command exits
+before merging the bulk cache. Recover the bulk cache without CDS requests:
+
+```powershell
+python Pre_Processing/backfill_era5_shts.py --stage 2025 --years-per-package 1 --months-per-package 3 --merge-only
+```
+
+Then retry spectra independently with the command above. Completed daily GRIBs
+are retained in `era5_spectra_YYYY_MM.parts/` and skipped on retry. Monthly files
+are assembled in calendar-day order only after all daily chunks are available.
+Daily chunks are retained after assembly for recovery; this uses extra disk
+space. Existing valid monthly GRIB files are also skipped. Do not run multiple
+downloaders concurrently.
 
 The raw retrieval script only checks GRIB file envelopes, not every spectral
 message or timestamp. Before feeding spectra into the existing fitter, decode

@@ -4,6 +4,7 @@ import argparse
 import calendar
 import json
 from pathlib import Path
+import shutil
 
 import cdsapi
 
@@ -11,12 +12,18 @@ import cdsapi
 DEFAULT_DIR = Path(__file__).resolve().parent / "era5_spectra"
 
 
-def spectral_request(year, month):
+def spectral_request(year, month, day=None):
     last_day = calendar.monthrange(year, month)[1]
+    if day is not None and not 1 <= day <= last_day:
+        raise ValueError("Day is outside the requested month")
+    dates = (
+        f"{year}-{month:02d}-01/to/{year}-{month:02d}-{last_day}"
+        if day is None else f"{year}-{month:02d}-{day:02d}"
+    )
     return {
         "class": "ea", "expver": "1", "stream": "wave",
         "type": "an", "levtype": "sfc", "param": "140251",
-        "date": f"{year}-{month:02d}-01/to/{year}-{month:02d}-{last_day}",
+        "date": dates,
         "time": "/".join(f"{hour:02d}:00:00" for hour in range(24)),
         "frequency": "1/to/30", "direction": "1/to/24",
         "area": "59/-4/59/-4", "grid": "0.5/0.5",
@@ -49,13 +56,18 @@ def retrieve_spectra(start_year, end_year, output_dir=None, dry_run=False):
                 continue
             request = spectral_request(year, month)
             if dry_run:
-                print(f"Would retrieve 720 spectral bins/hour: {target}")
+                days = calendar.monthrange(year, month)[1]
+                print(
+                    f"Would retrieve {days} daily requests, "
+                    f"720 spectral bins/hour: {target}"
+                )
                 continue
             output_dir.mkdir(parents=True, exist_ok=True)
             partial = target.with_suffix(".grib.part")
             metadata = target.with_suffix(".request.json")
             metadata.write_text(json.dumps({
                 "dataset": "reanalysis-era5-complete", "request": request,
+                "request_partition": "One request per calendar day",
                 "interpretation": (
                     "Raw archived spectra; not yet decoded or fitted. "
                     "GRIB envelope checks do not prove complete coverage. "
@@ -64,12 +76,40 @@ def retrieve_spectra(start_year, end_year, output_dir=None, dry_run=False):
                 ),
             }, indent=2) + "\n", encoding="utf-8")
             if not valid_grib(partial):
-                if client is None:
-                    client = cdsapi.Client()
-                print(f"Retrieving full spectra: {target.name}", flush=True)
-                client.retrieve(
-                    "reanalysis-era5-complete", request, str(partial)
-                )
+                parts_dir = output_dir / f"{target.stem}.parts"
+                parts_dir.mkdir(parents=True, exist_ok=True)
+                daily_paths = []
+                for day in range(1, calendar.monthrange(year, month)[1] + 1):
+                    daily = parts_dir / f"day_{day:02d}.grib"
+                    daily_paths.append(daily)
+                    if valid_grib(daily):
+                        continue
+                    if daily.exists():
+                        raise ValueError(f"Invalid existing GRIB: {daily}")
+                    daily_partial = daily.with_suffix(".grib.part")
+                    if not valid_grib(daily_partial):
+                        if client is None:
+                            client = cdsapi.Client()
+                        print(
+                            f"Retrieving full spectra: {target.stem} "
+                            f"day {day:02d}", flush=True,
+                        )
+                        client.retrieve(
+                            "reanalysis-era5-complete",
+                            spectral_request(year, month, day),
+                            str(daily_partial),
+                        )
+                    if not valid_grib(daily_partial):
+                        raise ValueError(
+                            f"Response is not a GRIB file: {daily_partial}"
+                        )
+                    daily_partial.replace(daily)
+                assembly = target.with_suffix(".grib.assembling")
+                with assembly.open("wb") as destination:
+                    for daily in daily_paths:
+                        with daily.open("rb") as source:
+                            shutil.copyfileobj(source, destination)
+                assembly.replace(partial)
             if not valid_grib(partial):
                 raise ValueError(f"Response is not a GRIB file: {partial}")
             partial.replace(target)

@@ -1,0 +1,58 @@
+{
+  "frequency_hz": 0.0625,
+  "period_s": 16.0,
+  "summary_cycles": 10,
+  "window_cycles": [
+    5,
+    10,
+    20,
+    30,
+    37
+  ],
+  "time_start_s": 0.0,
+  "time_end_s": 600.0,
+  "sample_count_per_run": 6001,
+  "sample_interval_s": 0.10000000000002274,
+  "inputs": {
+    "wind_floater_csv": "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\Regular_Dir0_Hs0.5395_Tp16\\IEA15MW_VolturnUS_regular_Hs0.5395_Tp16_floater_17ms.csv",
+    "no_wind_floater_csv": "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\Regular_Dir0_Hs0.5395_Tp16\\IEA15MW_VolturnUS_regular_Hs0.5395_Tp16_floater_nowind.csv",
+    "raft_reference_csv": "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\Comparison\\raft_single_frequency_response.csv"
+  },
+  "raft_references": {
+    "no_wind": {
+      "csv": "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\Comparison\\wind_vs_nowind\\raft_no_wind_single_frequency_response.csv",
+      "selected_frequency_hz": 0.0625,
+      "selected_wave_amplitude_m": 0.2697356125081837,
+      "wave_spectrum": "JONSWAP",
+      "Hs_m": 7.0,
+      "Tp_s": 16.0,
+      "gamma": 30.0,
+      "turbine_status": "parked",
+      "wind_speed_m_s": 0.0
+    },
+    "wind": {
+      "csv": "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\Comparison\\wind_vs_nowind\\raft_17ms_single_frequency_response.csv",
+      "selected_frequency_hz": 0.0625,
+      "selected_wave_amplitude_m": 0.2697356125081837,
+      "wave_spectrum": "JONSWAP",
+      "Hs_m": 7.0,
+      "Tp_s": 16.0,
+      "gamma": 30.0,
+      "turbine_status": "parked",
+      "wind_speed_m_s": 17.1,
+      "warning": "RAFT parked mode neglects rotor aerodynamic loads; this is not equivalent to OrcaFlex NPD wind loading."
+    }
+  },
+  "source_sha256": {
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\Regular_Dir0_Hs0.5395_Tp16\\IEA15MW_VolturnUS_regular_Hs0.5395_Tp16_floater_17ms.csv": "4e861b2d0de359d53eec9871664d3fb89202514c0045c4b8e1a01f1b1ed6be13",
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\Regular_Dir0_Hs0.5395_Tp16\\IEA15MW_VolturnUS_regular_Hs0.5395_Tp16_floater_nowind.csv": "a543f92716851bcfc105261359794968095f4ced224d669929f2951d7e9f8d01",
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\Comparison\\raft_single_frequency_response.csv": "79198b9e69381b43f9166db112bc24322999b54f63dd0ec31ab441fed0259abc"
+  },
+  "limitations": [
+    "The wind-present OrcaFlex export is compared to RAFT with the same nominal 17.1 m/s input, but RAFT parked mode neglects rotor aerodynamic loads and does not reproduce OrcaFlex NPD wind loading.",
+    "The YAML states wind speed 17.1 m/s, but exports alone do not prove active wind/aerodynamic load flags for each OrcaFlex run.",
+    "Wave direction and motion channel frames/origins/filter definitions require OrcaFlex confirmation.",
+    "Primary WF is the wave-band candidate; Dynamic is included as a separate channel family.",
+    "The RAFT reference is a selected component from JONSWAP, not a pure regular-wave RAFT run."
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "period_s": 16.0,
+  "frequency_hz": 0.0625,
+  "raft_case": {
+    "wave_spectrum": "JONSWAP",
+    "Hs_m": 7.0,
+    "Tp_s": 16.0,
+    "gamma": 30.0,
+    "wave_heading_deg": 0,
+    "wind_speed_m_s": 0,
+    "turbulence": 0,
+    "turbine_status": "parked",
+    "selected_frequency_hz": 0.0625,
+    "selected_wave_amplitude_m": 0.2697356125081837
+  },
+  "orcaflex_wave_height_label_m": 0.5395,
+  "orcaflex_measured_wave_channel": "Sea surface Z",
+  "orcaflex_time_start_s": 0.0,
+  "orcaflex_time_end_s": 600.0,
+  "orcaflex_sample_count": 6001,
+  "orcaflex_sample_interval_s": 0.10000000000002274,
+  "summary_window_cycles": 10,
+  "window_sensitivity_cycles": [
+    5,
+    10,
+    20,
+    30,
+    37
+  ],
+  "channel_sets": {
+    "Dynamic": [
+      "Dynamic x",
+      "Dynamic y",
+      "Dynamic z",
+      "Dynamic Rx",
+      "Dynamic Ry",
+      "Dynamic Rz"
+    ],
+    "Primary WF": [
+      "Primary WF surge",
+      "Primary WF sway",
+      "Primary WF heave",
+      "Primary WF roll",
+      "Primary WF pitch",
+      "Primary WF yaw"
+    ]
+  },
+  "limitations": [
+    "OrcaFlex wave direction versus RAFT global +X convention is unverified.",
+    "Floater Dynamic and Primary WF frame, origin, and filtering are unverified; both are reported separately.",
+    "Sea surface Z is used as the wave reference, but its location/definition is not independently verified.",
+    "Mean offsets are reported separately and are not assumed to share the RAFT equilibrium reference.",
+    "RAFT is a JONSWAP linear frequency-domain response; comparison is at the selected 16 s component only."
+  ],
+  "source_sha256": {
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\Dir0_Hs0.5395_Tp16\\IEA15MW_VolturnUS_regular_Hs0.5395_Tp16_floater_01.csv": "4e861b2d0de359d53eec9871664d3fb89202514c0045c4b8e1a01f1b1ed6be13",
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\Dir0_Hs0.5395_Tp16\\IEA15MW_VolturnUS_regular_Hs0.5395_Tp16_01.csv": "682c1ab758a4a5a143b354171cf33191f6b2aa020e6ec5a4c763f664b7d1db3d",
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\Comparison\\raft_single_frequency_response.csv": "79198b9e69381b43f9166db112bc24322999b54f63dd0ec31ab441fed0259abc",
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\Comparison\\raft_full_frequency_response.csv": "63bf08ef24bdcc689fbeee52f212636f676736254e52251d8ad845484fd5fa8b"
+  }
+}

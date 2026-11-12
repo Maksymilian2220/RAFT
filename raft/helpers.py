@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.integrate import trapezoid
 
 
 # ---------------------------- misc classes -----------------------------------
@@ -773,7 +774,7 @@ def JONSWAP(ws, Hs, Tp, Gamma=None):
     # significant wave height for strongly peaked spectra as well.
     if len(ws) > 1:
         target_m0 = Hs * Hs / 16.0
-        m0 = np.trapz(S, ws)
+        m0 = trapezoid(S, ws)
         if m0 > 0.0:
             S *= target_m0 / m0
 

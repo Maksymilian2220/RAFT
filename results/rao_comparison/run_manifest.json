@@ -1,0 +1,23 @@
+{
+  "orcaflex_inputs_scope": "Only per-DOF displacement and load files located in OrcaFlex_Results/RAOS/ are used.",
+  "orcaflex_motion_dofs_compared": [
+    "surge",
+    "heave",
+    "pitch"
+  ],
+  "phase_comparison": "unavailable; OrcaFlex displacement files provide amplitude only",
+  "frequency_sample_count": 29,
+  "frequency_min_hz": 0.010000000000000002,
+  "frequency_max_hz": 0.25,
+  "relative_error_floor": 1e-08,
+  "input_sha256": {
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\RAOS\\IEA15MW_VolturnUS_Disp_RAO_surge_0deg.csv": "caa74a892b9f2dfaa0cf42cffd948c8beb96c8c0cbac3d4d2a8c3ab2d8cb0d05",
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\RAOS\\IEA15MW_VolturnUS_Disp_RAO_heave_0deg.csv": "48f76e12a399fbb56df561ed69e04dbac3a9c4b1923f4fe5ad890810c236116b",
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\RAOS\\IEA15MW_VolturnUS_Disp_RAO_pitch_0deg.csv": "8a6d23087f205c7f06a79db0f17059e9659db343064c2fa6455e0bddc8703830",
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\results\\floater_raos.csv": "4fa1854e7c1eba824a6a33e23af6026e737f7ccaab9160ecd1b785acb85f7ebb",
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\RAOS\\IEA15MW_VolturnUS_Load_RAO_surge_0deg.csv": "8f7835af6e2b9dec2942bb2c4a3dd5471ce645ec16941fc34b154d1e26348665",
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\RAOS\\IEA15MW_VolturnUS_Load_RAO_heave_0deg.csv": "07405aefdc118f0061b07b5b89f0a96fb3299263a91764c6353679c5f410d522",
+    "C:\\Users\\Z00565RD\\OneDrive - Siemens Energy\\Documents\\DTU Special Course 2026\\RAFT\\OrcaFlex_Results\\RAOS\\IEA15MW_VolturnUS_Load_RAO_pitch_0deg.csv": "a428611b3159e63ce0248c5048ba9658bce3dd573bc2154295298a232cb9c1d3"
+  },
+  "load_comparison_status": "inventory only; no matching RAFT force RAO or verified load definition/frame/reference point"
+}

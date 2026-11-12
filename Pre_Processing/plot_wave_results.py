@@ -405,6 +405,62 @@ def plot_wave_height_comparison(
     plt.close(figure)
 
 
+def plot_three_way_height_comparison(
+    results_dir: Path, output_dir: Path
+) -> None:
+    path = results_dir / "wave_state_data.csv"
+    if not path.is_file():
+        return
+    rows = read_csv_rows(path, {"swh_m", "shww_m", "shts_m"})
+    heights = {
+        name: np.array([numeric(row[column], path, column) for row in rows])
+        for name, column in (
+            ("Combined", "swh_m"),
+            ("Wind waves", "shww_m"),
+            ("Total swell", "shts_m"),
+        )
+    }
+    pairs = (
+        ("Wind waves", "Combined"),
+        ("Total swell", "Combined"),
+        ("Wind waves", "Total swell"),
+    )
+    figure, axes = plt.subplots(
+        1, len(pairs), figsize=(17, 5), constrained_layout=True
+    )
+    for axis, (x_name, y_name) in zip(axes, pairs):
+        x_values = heights[x_name]
+        y_values = heights[y_name]
+        valid = np.isfinite(x_values) & np.isfinite(y_values)
+        x_values = x_values[valid]
+        y_values = y_values[valid]
+        if not x_values.size:
+            axis.text(
+                0.5, 0.5, "No paired observations",
+                ha="center", va="center", transform=axis.transAxes,
+            )
+            axis.set_axis_off()
+            continue
+        maximum = max(float(x_values.max()), float(y_values.max()), 1.0)
+        image = axis.hexbin(
+            x_values, y_values, gridsize=55, mincnt=1, bins="log",
+        )
+        axis.plot([0, maximum], [0, maximum], "k--", linewidth=1)
+        axis.set(
+            xlim=(0, maximum), ylim=(0, maximum),
+            xlabel=f"{x_name} significant height (m)",
+            ylabel=f"{y_name} significant height (m)",
+            title=f"{x_name} vs {y_name}, n={x_values.size:,}",
+        )
+        figure.colorbar(
+            image, ax=axis, label="Hourly observations (log scale)"
+        )
+    figure.savefig(
+        output_dir / "wave_height_three_way_comparison.png", dpi=200
+    )
+    plt.close(figure)
+
+
 def plot_direction_rose(results_dir: Path, output_dir: Path) -> None:
     path = results_dir / "wind_direction_frequency.csv"
     rows = read_csv_rows(
@@ -610,6 +666,7 @@ def plot_results(results_dir: Path, output_dir: Path) -> None:
     plot_full_and_workable(results_dir, output_dir, workability_hs_max)
     plot_additional_metrics(results_dir, output_dir)
     plot_wave_height_comparison(results_dir, output_dir)
+    plot_three_way_height_comparison(results_dir, output_dir)
     plot_direction_rose(results_dir, output_dir)
     plot_height_cdf(results_dir, output_dir)
     plot_partition_diagnostics(results_dir, output_dir)
@@ -782,7 +839,7 @@ def run_self_tests() -> None:
             np.testing.assert_allclose(matrix[:, 0], [0.25, 0.75])
 
         def test_plot_all_saved_figures(self):
-            results_dir = BASE_DIR / "wave_results_2006_2020"
+            results_dir = DEFAULT_RESULTS
             with tempfile.TemporaryDirectory() as temporary:
                 output_dir = Path(temporary)
                 plot_results(results_dir, output_dir)
@@ -791,10 +848,13 @@ def run_self_tests() -> None:
                     "wave_state_distributions.png",
                     "additional_metric_distributions.png",
                     "wave_height_comparison.png",
+                    "wave_height_three_way_comparison.png",
                     "wind_direction_rose.png",
                 }
                 self.assertEqual(
-                    {path.name for path in output_dir.glob("*.png")}, expected
+                    expected,
+                    {path.name for path in output_dir.glob("*.png")}
+                    & expected,
                 )
                 self.assertTrue(all(
                     path.stat().st_size > 0
@@ -822,6 +882,29 @@ def run_self_tests() -> None:
                 plot_wave_height_comparison(results_dir, output_dir)
                 self.assertGreater(
                     (output_dir / "wave_height_comparison.png").stat().st_size,
+                    0,
+                )
+
+        def test_three_way_height_comparison_uses_available_swell_pairs(self):
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                results_dir = root / "results"
+                output_dir = root / "plots"
+                results_dir.mkdir()
+                output_dir.mkdir()
+                with (results_dir / "wave_state_data.csv").open(
+                    "w", newline="", encoding="utf-8"
+                ) as handle:
+                    writer = csv.writer(handle)
+                    writer.writerow(["swh_m", "shww_m", "shts_m"])
+                    writer.writerows([
+                        [1.2, 0.8, 0.5],
+                        [1.4, 0.9, ""],
+                    ])
+                plot_three_way_height_comparison(results_dir, output_dir)
+                self.assertGreater(
+                    (output_dir / "wave_height_three_way_comparison.png")
+                    .stat().st_size,
                     0,
                 )
 
